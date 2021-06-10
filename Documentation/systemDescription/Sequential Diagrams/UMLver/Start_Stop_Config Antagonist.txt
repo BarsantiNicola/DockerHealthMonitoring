@@ -1,0 +1,15 @@
+title Start/Stop/Config Antagonist
+ 
+participant "Antagonist" as A
+participant "Controller" as B
+actor "User" as C
+
+C->>B: START/STOP/CONFIG ANTAGONIST
+
+B->>A: START/STOP/CONFIG ANTAGONIST
+A-->>B: OK/ERROR
+B-->>C: OK/ERROR
+
+
+
+

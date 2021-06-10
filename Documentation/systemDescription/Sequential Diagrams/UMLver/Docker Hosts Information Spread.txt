@@ -1,0 +1,11 @@
+title Docker Hosts List
+ 
+participant "Controller" as B
+actor "User" as C
+
+C->>B: SHOW DOCKER HOSTS
+B-->C: DOCKER HOSTS LIST
+
+
+
+
