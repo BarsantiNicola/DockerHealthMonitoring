@@ -7,8 +7,10 @@ import pika
 class client:
 
     def __init__(self, address):
-        self.connection = None
-        self.channel = None
+        self.send_connection = None
+        self.receive_connection = None
+        self.send_channel = None
+        self.receive_channel = None
         self.address = address
         self.generate_channel()
 
@@ -29,14 +31,15 @@ class client:
         if self.address is None:
             return False
         try:
-            self.connection = pika.BlockingConnection(pika.ConnectionParameters(self.address))
-            self.channel = self.connection.channel()
-            self.channel.exchange_declare(exchange='health_system_exchange', exchange_type='direct')
+            self.send_connection = pika.BlockingConnection(pika.ConnectionParameters(self.address))
+            self.receive_connection = pika.BlockingConnection(pika.ConnectionParameters(self.address))
+            self.send_channel = self.send_connection.channel()
+            self.send_channel.exchange_declare(exchange='health_system_exchange', exchange_type='direct')
             return True
 
         except:
-            self.connection = None
-            self.channel = None
+            self.send_connection = None
+            self.send_channel = None
             return False
 
     # [MAYBE TO BE REMOVED] change the address used to reach the rabbitMQ instance
@@ -45,8 +48,8 @@ class client:
         if address is None:
             return False
 
-        if self.connection is not None:
-            self.connection.close()
+        if self.send_connection is not None:
+            self.send_connection.close()
 
         self.address = address
         return self.generate_channel()
@@ -57,11 +60,11 @@ class client:
         if self.address is None or message is None or hostname is None:
             return False
 
-        if self.connection is None and self.generate_channel() is False:
+        if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist.' + hostname,
-                                       body=message)
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist.' + hostname,
+                                            body=message)
             return True
         except:
             if reply is True:
@@ -75,10 +78,10 @@ class client:
         if self.address is None or message is None:
             return False
 
-        if self.connection is None and self.generate_channel() is False:
+        if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist', body=message)
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist', body=message)
             return True
         except:
             if reply is True:
@@ -92,11 +95,11 @@ class client:
         if self.address is None or message is None or hostname is None:
             return False
 
-        if self.connection is None and self.generate_channel() is False:
+        if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.channel.basic_publish(exchange='health_system_exchange', routing_key='manager.' + hostname,
-                                       body=message)
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='manager.' + hostname,
+                                            body=message)
             return True
         except:
             if reply is True:
@@ -110,10 +113,10 @@ class client:
         if self.address is None or message is None:
             return False
 
-        if self.connection is None and self.generate_channel() is False:
+        if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.channel.basic_publish(exchange='health_system_exchange', routing_key='manager', body=message)
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='manager', body=message)
             return True
         except:
             if reply is True:
@@ -127,10 +130,10 @@ class client:
         if self.address is None or message is None:
             return False
 
-        if self.connection is None and self.generate_channel() is False:
+        if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.channel.basic_publish(exchange='health_system_exchange', routing_key='controller', body=message)
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller', body=message)
             return True
         except:
             if reply is True:
@@ -142,21 +145,25 @@ class client:
     # receiver_type: antagonist,manager,controller
     # callback_fun: function to be called whena message arrive
     def allocate_receiver(self, receiver_type, callback_fun) -> bool:
+        if self.receive_channel is not None:
+            return False
         try:
-            result = self.channel.queue_declare(queue='', exclusive=True)
+            self.receive_channel = self.receive_connection.channel()
+            result = self.receive_channel.queue_declare(queue='', exclusive=True)
             queue_name = result.method.queue
 
-            self.channel.queue_bind(exchange='health_system_exchange',
-                                    queue=queue_name,
-                                    routing_key=receiver_type)
+            self.receive_channel.queue_bind(exchange='health_system_exchange',
+                                            queue=queue_name,
+                                            routing_key=receiver_type)
 
-            self.channel.queue_bind(exchange='health_system_exchange',
-                                    queue=queue_name,
-                                    routing_key=receiver_type + '.' + socket.gethostname())
-            self.channel.basic_consume(queue=queue_name, on_message_callback=callback_fun, auto_ack=True)
-            threading.Thread(target=self.channel.start_consuming).start()
+            self.receive_channel.queue_bind(exchange='health_system_exchange',
+                                            queue=queue_name,
+                                            routing_key=receiver_type + '.' + socket.gethostname())
+            self.receive_channel.basic_consume(queue=queue_name, on_message_callback=callback_fun, auto_ack=True)
+            threading.Thread(target=self.send_channel.start_consuming).start()
             return True
         except:
+            self.receive_channel = None
             return False
 
     # example of valid callback function to be used into the allocate_receiver[TO BE DEFINED OUTSIDE RABBITCLIENT]
