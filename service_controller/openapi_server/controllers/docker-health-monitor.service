@@ -1,0 +1,10 @@
+[Unit]
+Description=<project description>
+
+[Service]
+User=root
+WorkingDirectory=/home/root/components
+ExecStart=/bin/bash -c 'cd /root && source venv/bin/activate && python test.py'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,955 @@
+openapi: 3.0.0
+info:
+  contact: {}
+  description: REST API for remote control and management of the Docker Health System
+    by users. Allow the display of containers maintained on systems, add and remove
+    containers or new machines. Modify the operating parameters of the system and
+    launch a testing application to verify the functionality of the system
+  title: Health Monitor REST API
+  version: 1.0.0
+servers:
+- url: http://172.16.3.167:80/healthmonitor
+tags:
+- description: Docker Containers collection, permits to show and manage all the available
+    Linux Containers
+  name: containers
+- description: System testing functionalities, permits to start, stop and configure
+    a practical evaluation of the service
+  name: test
+paths:
+  /containers:
+    get:
+      description: It gives a list of all the Docker hosts with all the allocated
+        containers
+      operationId: get_all_containers
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                items:
+                  $ref: '#/components/schemas/inline_response_200_2'
+                type: array
+                xml:
+                  name: results
+            application/json:
+              schema:
+                items:
+                  properties:
+                    hostname:
+                      example: datanode
+                      type: string
+                    containers:
+                      items:
+                        properties:
+                          containerID:
+                            example: ASD0A9JSDA0SDASDA
+                            type: string
+                          managed:
+                            example: false
+                            type: boolean
+                          status:
+                            example: '["restarting","stop","start"]'
+                            type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
+                xml:
+                  name: results
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Get a container
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    post:
+      description: It changes the threshold used by all the docker managers to evaluate
+        the Health of the containers
+      operationId: change_all_threshold
+      parameters: []
+      requestBody:
+        $ref: '#/components/requestBodies/changeThresholdThreshold'
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Update the threshold of all the docker managers
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+  /containers/{hostname}:
+    delete:
+      description: It removes from the service management the container specified
+        by the given ID. The container will be leaved on the machine in its current
+        status
+      operationId: remove_host
+      parameters:
+      - description: the hostname of the machine which maintains the container
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_1'
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                password:
+                  description: The password used on the selected host. It's used to
+                    ensure that the user has the permission to perform the task
+                  example: lost
+                  type: string
+              type: object
+          application/json:
+            schema:
+              properties:
+                password:
+                  description: The password used on the selected host. It's used to
+                    ensure that the user has the permission to perform the task
+                  example: lost
+                  type: string
+              type: object
+          application/xml:
+            schema:
+              properties:
+                password:
+                  description: The password used on the selected host. It's used to
+                    ensure that the user has the permission to perform the task
+                  example: lost
+                  type: string
+              type: object
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Remove a Docker host
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    get:
+      description: It gives all the containers maintaines by the specified host
+      operationId: get_host_containers
+      parameters:
+      - description: the hostname of the machine which maintains the containers
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_1'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_1'
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Get all the containers
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    post:
+      description: It changes the threshold used by the selected docker manager to
+        evaluate the Health of the containers
+      operationId: change_threshold
+      parameters:
+      - description: the hostname of the machine
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/changeThresholdThreshold'
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Update the threshold of the selected docker manager
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    put:
+      description: It adds a new docker host in which our service must be deployed
+      operationId: add_host
+      parameters:
+      - description: the hostname of the machine
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object'
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                address:
+                  description: the IPv4 address of a machine
+                  example: 172.16.3.167
+                  type: string
+                username:
+                  description: the username to be used to access the machine. If missing
+                    the service will use root
+                  example: hadoop
+                  type: string
+                password:
+                  description: the password to be used to access the machine. If missing
+                    the service will assume that no password is setted
+                  example: lost
+                  type: string
+              required:
+              - address
+              type: object
+          application/json:
+            schema:
+              properties:
+                address:
+                  description: the IPv4 address of a machine
+                  example: 172.16.3.167
+                  type: string
+                username:
+                  description: the username to be used to access the machine. If missing
+                    the service will use root
+                  example: hadoop
+                  type: string
+                password:
+                  description: the password to be used to access the machine. If missing
+                    the service will assume that no password is setted
+                  example: lost
+                  type: string
+              required:
+              - address
+              type: object
+          application/xml:
+            schema:
+              properties:
+                address:
+                  description: the IPv4 address of a machine
+                  example: 172.16.3.167
+                  type: string
+                username:
+                  description: the username to be used to access the machine. If missing
+                    the service will use root
+                  example: hadoop
+                  type: string
+                password:
+                  description: the password to be used to access the machine. If missing
+                    the service will assume that no password is setted
+                  example: lost
+                  type: string
+              required:
+              - address
+              type: object
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Add a new Docker host
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+  /containers/{hostname}/{containerID}:
+    delete:
+      description: It removes from the service management the container specified
+        by the given ID. The container will be leaved on the machine in its current
+        status
+      operationId: remove_container
+      parameters:
+      - description: the ID associated with the container the user want to add to
+          the service
+        explode: false
+        in: path
+        name: containerID
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the hostname of the machine which maintains the container
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Remove a container
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    get:
+      description: It gives the container specified by its ID
+      operationId: get_container
+      parameters:
+      - description: the ID associated with the container the user want to add to
+          the service
+        explode: false
+        in: path
+        name: containerID
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the hostname of the machine which maintains the container
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/inline_response_200'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200'
+          description: operation completed
+        "404":
+          description: hostname not found
+        "405":
+          description: containerID not found
+        "500":
+          description: Internal error
+      summary: Get a container
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+    put:
+      description: It adds a new docker container from the available Docker containers
+        to be managed by our Health monitoring system
+      operationId: add_container
+      parameters:
+      - description: the ID associated with the container the user want to add to
+          the service
+        explode: false
+        in: path
+        name: containerID
+        required: true
+        schema:
+          type: string
+        style: simple
+      - description: the hostname of the machine which maintains the container
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: operation completed
+        "404":
+          description: Hostname not found
+        "405":
+          description: ContainerID not found
+        "500":
+          description: Internal error
+      summary: Add a new Docker container
+      tags:
+      - containers
+      x-openapi-router-controller: openapi_server.controllers.containers_controller
+  /test:
+    delete:
+      description: It stops all the antagonist running on the service
+      operationId: remove_antagonists
+      parameters: []
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Remove all the antagonists
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+    get:
+      description: It gives back the results of the last test
+      operationId: get_report
+      parameters: []
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_3'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200_3'
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Get the results
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+    post:
+      description: It changes the configuration used by an antagonist into the defined
+        docker host
+      operationId: change_antagonists_config
+      parameters: []
+      requestBody:
+        $ref: '#/components/requestBodies/changeHostAntagonistConfigConfig'
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Update the configuration used by an antagonist
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+    put:
+      description: It adds a new antagonist on all the docker host
+      operationId: add_antagonists
+      parameters: []
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_3'
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+          application/json:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+          application/xml:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Add an antagonist
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+  /test/{hostname}:
+    delete:
+      description: It stops an antagonist running on the selected docker host
+      operationId: remove_host_antagonist
+      parameters:
+      - description: the hostname of the machine which maintains the antagonist
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Remove an antagonist from a docker host
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+    post:
+      description: It changes the configuration used by an antagonist into the defined
+        docker host
+      operationId: change_host_antagonist_config
+      parameters:
+      - description: the hostname of the machine
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/changeHostAntagonistConfigConfig'
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Update the configuration used by an antagonist
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+    put:
+      description: It adds a new antagonist on the selected docker host
+      operationId: add_host_antagonist
+      parameters:
+      - description: the hostname of the machine
+        explode: false
+        in: path
+        name: hostname
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        $ref: '#/components/requestBodies/inline_object_2'
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  example: 60
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  example: 50
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+          application/json:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  example: 60
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  example: 50
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+          application/xml:
+            schema:
+              properties:
+                aggressivity:
+                  description: the probability(0-100%) that the antagonist will attack
+                    the containers
+                  example: 60
+                  type: integer
+                behaviour:
+                  description: the probability(0-100%) that the antagonist will shut
+                    down a container insted of applying a packet loss(packet loss
+                    is the remaining probability)
+                  example: 50
+                  type: integer
+              required:
+              - aggressivity
+              - behaviour
+              type: object
+      responses:
+        "200":
+          description: operation completed
+        "405":
+          description: Invalid input
+        "500":
+          description: Internal error
+      summary: Add an antagonist
+      tags:
+      - test
+      x-openapi-router-controller: openapi_server.controllers.test_controller
+components:
+  callbacks: {}
+  links: {}
+  requestBodies:
+    changeThresholdThreshold:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            description: The threshold is a value from 0 to 100 which describe the
+              percentage of packet loss to reach in order to carry out a restart of
+              the container
+            example: 80
+            type: number
+        application/json:
+          schema:
+            description: The threshold is a value from 0 to 100 which describe the
+              percentage of packet loss to reach in order to carry out a restart of
+              the container
+            example: 80
+            type: number
+        application/xml:
+          schema:
+            description: The threshold is a value from 0 to 100 which describe the
+              percentage of packet loss to reach in order to carry out a restart of
+              the container
+            example: 80
+            type: number
+      required: true
+    changeHostAntagonistConfigConfig:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            properties:
+              aggressivity:
+                description: the probability(0-100%) that the antagonist will attack
+                  the containers
+                example: 80
+                type: integer
+              behaviour:
+                description: the probability(0-100%) that the antagonist will shut
+                  down a container insted of applying a packet loss(packet loss is
+                  the remaining probability)
+                example: 50
+                type: integer
+            required:
+            - aggressivity
+            - behaviour
+            type: object
+        application/json:
+          schema:
+            properties:
+              aggressivity:
+                description: the probability(0-100%) that the antagonist will attack
+                  the containers
+                example: 80
+                type: integer
+              behaviour:
+                description: the probability(0-100%) that the antagonist will shut
+                  down a container insted of applying a packet loss(packet loss is
+                  the remaining probability)
+                example: 50
+                type: integer
+            required:
+            - aggressivity
+            - behaviour
+            type: object
+        application/xml:
+          schema:
+            properties:
+              aggressivity:
+                description: the probability(0-100%) that the antagonist will attack
+                  the containers
+                example: 80
+                type: integer
+              behaviour:
+                description: the probability(0-100%) that the antagonist will shut
+                  down a container insted of applying a packet loss(packet loss is
+                  the remaining probability)
+                example: 50
+                type: integer
+            required:
+            - aggressivity
+            - behaviour
+            type: object
+    inline_object:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            $ref: '#/components/schemas/inline_object'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object'
+        application/xml:
+          schema:
+            $ref: '#/components/schemas/inline_object'
+    inline_object_1:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            $ref: '#/components/schemas/inline_object_1'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_1'
+        application/xml:
+          schema:
+            $ref: '#/components/schemas/inline_object_1'
+    inline_object_2:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            $ref: '#/components/schemas/inline_object_2'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_2'
+        application/xml:
+          schema:
+            $ref: '#/components/schemas/inline_object_2'
+    inline_object_3:
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            $ref: '#/components/schemas/inline_object_3'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/inline_object_3'
+        application/xml:
+          schema:
+            $ref: '#/components/schemas/inline_object_3'
+  schemas:
+    inline_response_200:
+      example:
+        managed: true
+        containerID: ASD0A9JSDA0SDASDA
+        status: restarting
+      properties:
+        containerID:
+          example: ASD0A9JSDA0SDASDA
+          title: containerID
+          type: string
+        managed:
+          example: true
+          title: managed
+          type: boolean
+        status:
+          example: restarting
+          title: status
+          type: string
+      required:
+      - containerID
+      title: inline_response_200
+      type: object
+      xml:
+        name: container
+    inline_response_200_1_containers:
+      example:
+        managed: false
+        containerID: ASD0A9JSDA0SDASDA
+        status: '["restarting","stop","start"]'
+      properties:
+        containerID:
+          example: ASD0A9JSDA0SDASDA
+          title: containerID
+          type: string
+        managed:
+          example: false
+          title: managed
+          type: boolean
+        status:
+          example: '["restarting","stop","start"]'
+          title: status
+          type: string
+      title: inline_response_200_1_containers
+      type: object
+    inline_response_200_1:
+      example:
+        hostname: datanode
+        containers:
+        - managed: false
+          containerID: ASD0A9JSDA0SDASDA
+          status: '["restarting","stop","start"]'
+        - managed: false
+          containerID: ASD0A9JSDA0SDASDA
+          status: '["restarting","stop","start"]'
+      properties:
+        hostname:
+          example: datanode
+          title: hostname
+          type: string
+        containers:
+          items:
+            $ref: '#/components/schemas/inline_response_200_1_containers'
+          title: containers
+          type: array
+      required:
+      - containers
+      - hostname
+      title: inline_response_200_1
+      type: object
+      xml:
+        name: result
+    inline_object:
+      properties:
+        address:
+          description: the IPv4 address of a machine
+          example: 172.16.3.167
+          type: string
+        username:
+          description: the username to be used to access the machine. If missing the
+            service will use root
+          example: hadoop
+          type: string
+        password:
+          description: the password to be used to access the machine. If missing the
+            service will assume that no password is setted
+          example: lost
+          type: string
+      required:
+      - address
+      type: object
+    inline_object_1:
+      properties:
+        password:
+          description: The password used on the selected host. It's used to ensure
+            that the user has the permission to perform the task
+          example: lost
+          type: string
+      type: object
+    inline_response_200_2:
+      example:
+        hostname: datanode
+        containers:
+        - managed: false
+          containerID: ASD0A9JSDA0SDASDA
+          status: '["restarting","stop","start"]'
+        - managed: false
+          containerID: ASD0A9JSDA0SDASDA
+          status: '["restarting","stop","start"]'
+      properties:
+        hostname:
+          example: datanode
+          title: hostname
+          type: string
+        containers:
+          items:
+            $ref: '#/components/schemas/inline_response_200_1_containers'
+          title: containers
+          type: array
+      title: inline_response_200_2
+      type: object
+    inline_object_2:
+      properties:
+        aggressivity:
+          description: the probability(0-100%) that the antagonist will attack the
+            containers
+          example: 60
+          type: integer
+        behaviour:
+          description: the probability(0-100%) that the antagonist will shut down
+            a container insted of applying a packet loss(packet loss is the remaining
+            probability)
+          example: 50
+          type: integer
+      required:
+      - aggressivity
+      - behaviour
+      type: object
+    inline_response_200_3:
+      example:
+        availability: 20
+        time: 11/06/2021 14:32:12
+        updates: 5
+      properties:
+        updates:
+          description: the number of update message received
+          example: 5
+          title: updates
+          type: number
+        availability:
+          description: the percentage of time in which the controller is updated
+          example: 20
+          title: availability
+          type: number
+        time:
+          description: the timestamp which refers the result. Each results define
+            a 5m interval of results aggregation
+          example: 11/06/2021 14:32:12
+          title: time
+          type: string
+      title: inline_response_200_3
+      type: object
+      xml:
+        name: results
+    inline_object_3:
+      properties:
+        aggressivity:
+          description: the probability(0-100%) that the antagonist will attack the
+            containers
+          type: integer
+        behaviour:
+          description: the probability(0-100%) that the antagonist will shut down
+            a container insted of applying a packet loss(packet loss is the remaining
+            probability)
+          type: integer
+      required:
+      - aggressivity
+      - behaviour
+      type: object
