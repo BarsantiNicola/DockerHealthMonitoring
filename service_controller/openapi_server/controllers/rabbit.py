@@ -160,7 +160,7 @@ class client:
                                             queue=queue_name,
                                             routing_key=receiver_type + '.' + socket.gethostname())
             self.receive_channel.basic_consume(queue=queue_name, on_message_callback=callback_fun, auto_ack=True)
-            threading.Thread(target=self.send_channel.start_consuming).start()
+            threading.Thread(target=self.receive_channel.start_consuming).start()
             return True
         except:
             self.receive_channel = None
