@@ -4,9 +4,10 @@ import os
 import random
 from time import sleep
 
-def start_antagonist():
-    while(1):
-        var = 0
+def start_antagonist():    
+     os.system('tc qdisc add dev docker0 root netem loss 0.01%') # create the virtual net environment
+     while(1):
+        var = 0.01
         pkt_loss = str(var) + "%"
         print("Pkt Loss inserted ", pkt_loss)
         cmd = "tc qdisc change dev docker0 root netem loss "+pkt_loss # Insert Zero Packet loss on Docker network
@@ -26,5 +27,5 @@ def start_antagonist():
             target = containers[var] # choose one container at Random 
             print(target.short_id, "ATTACKED")
             target.stop()            # shut down the target container
-            
+
 start_antagonist()
