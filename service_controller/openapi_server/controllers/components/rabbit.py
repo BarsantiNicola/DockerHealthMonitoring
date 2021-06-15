@@ -57,7 +57,7 @@ class client:
     # send a unicast message to an antagonist. The hostname must be the hostname of the local selected machine
     def send_antagonist_unicast(self, message, address, reply=True) -> bool:
 
-        if self.address is None or message is None or hostname is None:
+        if self.address is None or message is None or address is None:
             return False
 
         if self.send_connection is None and self.generate_channel() is False:
@@ -69,7 +69,7 @@ class client:
         except:
             if reply is True:
                 self.generate_channel()
-                return self.send_antagonist_unicast(message, hostname, False)
+                return self.send_antagonist_unicast(message, address, False)
             return False
 
     # send a broadcast message to all the antagonists
@@ -92,7 +92,7 @@ class client:
     # send a unicast message to a manager. The hostname must be the hostname of the local selected machine
     def send_manager_unicast(self, message, address, reply=True) -> bool:
 
-        if self.address is None or message is None or hostname is None:
+        if self.address is None or message is None or address is None:
             return False
 
         if self.send_connection is None and self.generate_channel() is False:
@@ -104,7 +104,7 @@ class client:
         except:
             if reply is True:
                 self.generate_channel()
-                return self.send_manager_unicast(message, hostname, False)
+                return self.send_manager_unicast(message, address, False)
             return False
 
     # send a broadcast message to all the docker managers
