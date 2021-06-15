@@ -1,0 +1,48 @@
+
+Manager
+RECEIVED
+1) ignore the containers
+{
+	'command' : 'container_ignore',
+	'containerID' : '.........'
+}
+
+2) set the threshold
+{
+	'command' : 'container_threshold',
+	'threshold': '5'
+}
+
+3) get the containers status
+{
+	'command' : 'give_content'
+}
+
+SENT[to the controller]
+1) update notification
+{
+	'command' : 'update',
+	'address' : '172.16.0.2'
+}
+
+2) sending the list of the containers with the status
+{
+	'command' : 'give_content',
+	'address' : '172.16.0.2'
+}
+
+3) notify to the controller that the manager is active
+{
+	'command' : 'live',
+	'address' : '172.16.0.2'
+}
+
+
+-> shutdown it 
+    -> send to the controller 'update'
+
+-> when manager detect that the container is restarted 
+    -> send to the controller 'update'		
+
+Antagonist
+if u have already an idea for structure of the messages u can put it here
