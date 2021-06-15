@@ -55,7 +55,7 @@ class client:
         return self.generate_channel()
 
     # send a unicast message to an antagonist. The hostname must be the hostname of the local selected machine
-    def send_antagonist_unicast(self, message, hostname, reply=True) -> bool:
+    def send_antagonist_unicast(self, message, address, reply=True) -> bool:
 
         if self.address is None or message is None or hostname is None:
             return False
@@ -63,7 +63,7 @@ class client:
         if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist.' + hostname,
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist.' + address,
                                             body=message)
             return True
         except:
@@ -90,7 +90,7 @@ class client:
             return False
 
     # send a unicast message to a manager. The hostname must be the hostname of the local selected machine
-    def send_manager_unicast(self, message, hostname, reply=True) -> bool:
+    def send_manager_unicast(self, message, address, reply=True) -> bool:
 
         if self.address is None or message is None or hostname is None:
             return False
@@ -98,7 +98,7 @@ class client:
         if self.send_connection is None and self.generate_channel() is False:
             return False
         try:
-            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='manager.' + hostname,
+            self.send_channel.basic_publish(exchange='health_system_exchange', routing_key='manager.' + address,
                                             body=message)
             return True
         except:
@@ -158,7 +158,7 @@ class client:
 
             self.receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
-                                            routing_key=receiver_type + '.' + socket.gethostname())
+                                            routing_key=receiver_type + '.' + socket.gethostbyname(socket.gethostname()))
             self.receive_channel.basic_consume(queue=queue_name, on_message_callback=callback_fun, auto_ack=True)
             threading.Thread(target=self.receive_channel.start_consuming).start()
             return True
