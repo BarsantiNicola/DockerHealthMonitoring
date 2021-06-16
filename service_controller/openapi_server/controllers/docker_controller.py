@@ -213,7 +213,7 @@ class controller:
         # configuration file used by managers will be in the components folder
         self._logger.debug("Generation of configuration file..")
         with open('components/configuration','w') as writer:
-            writer.write(address)
+            writer.write(json.dumps({'address': address}))
         self._logger.debug("Generation of configuration file completed")
         
     """ load the docker manager and the antagonist into an host identified by its address and root password """
@@ -252,9 +252,11 @@ class controller:
                 self._logger.debug("Sftp channel closed")
                 self._logger.debug("Execution of final operation on the remove host..")
                 # the service definition must be set as executable
-                ssh.exec_command('apt-get install python3 pip3')
-                ssh.exec_command('pip3 install --no-cache-dir -r /root/health_manager/requirements.txt')
+                ssh.exec_command('apt-get install -y python3.7 pip')
+                ssh.exec_command('update-alternatives  --set python /usr/bin/python3.7')
+                ssh.exec_command('pip install --no-cache-dir -r /root/health_manager/requirements.txt')
                 ssh.exec_command('chmod 0777 /etc/systemd/system/docker-health-monitor.service')
+                ssh.exec_command('systemctl daemon-reload')
                 ssh.exec_command('service docker-health-monitor start')
                 ssh.close()
                 self._logger.debug("Remote host configuration completed. Secure channel closed")
@@ -305,6 +307,7 @@ class controller:
                 ssh.exec_command('service docker-health-monitor stop')
                 ssh.exec_command('rm /etc/systemd/system/docker-health-monitor.service')
                 ssh.exec_command('rm -R /root/health_manager')
+                ssh.exec_command('systemctl daemon-reload')
                 ssh.close()
                 self._logger.debug("Data completely removed from the machine " + address + ". Secure channel closed")
                 self.remove_docker(address)

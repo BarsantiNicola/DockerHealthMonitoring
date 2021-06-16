@@ -2,10 +2,9 @@
 Description=<project description>
 
 [Service]
-User=nico
+User=root
 WorkingDirectory=/root/health_manager
-ExecStart=/bin/bash -c 'python3 test_manager.py'
-Restart=on-failure
+ExecStart=/bin/bash -c 'python test_manager.py'
 
 [Install]
 WantedBy=multi-user.target

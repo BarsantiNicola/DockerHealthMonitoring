@@ -7,8 +7,8 @@ Created on Tue Jun 15 22:23:13 2021
 """
 import time
 import json
-from numpy.random import exponential
 import threading
+import socket
 
 from rabbit import client
 
@@ -18,7 +18,6 @@ class tester:
     def test_callback(self, method, properties, x,body):
         message = json.loads(body)
         if message['command'] == 'give_content':
-            print("update request received")
             self.rabbit.send_controller(json.dumps({
                     'command' : 'content',
                     'content' : 'data',
@@ -28,14 +27,15 @@ class tester:
     def __init__(self):
         self._configuration = None
         if self.load_conf() is True:
-        self.rabbit = client(self._configuration['address'])
-        self.rabbit.allocate_receiver('manager',self.test_callback)
-        self.start_execution()
+            self.rabbit = client(self._configuration['address'])
+            self.rabbit.allocate_receiver('manager',self.test_callback)
+            self.start_execution()
+
     
     def start_execution(self):
         threading.Thread(target=self.heartbeat).start()
         while True:
-            time.sleep(exponential(60))
+            time.sleep(100)
             print("send update")
             self.rabbit.send_controller(json.dumps({
                     'command' : 'update',
@@ -61,8 +61,11 @@ class tester:
                 return True
             
         except ValueError:
+            print("Error, invalid configuration file")
             return False
         except FileNotFoundError:
+            print("Error, configuration file not found")
             return False
-        
-tester('172.17.0.2')
+ 
+print("launching!")       
+tester()

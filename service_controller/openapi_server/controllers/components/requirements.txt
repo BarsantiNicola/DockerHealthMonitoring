@@ -1,4 +1,2 @@
-time
-json
-numpy
-threading
+pika>=1.2.0
+
