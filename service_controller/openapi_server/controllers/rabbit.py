@@ -34,7 +34,8 @@ class client:
             self.send_connection = pika.BlockingConnection(pika.ConnectionParameters(self.address))
             self.receive_connection = pika.BlockingConnection(pika.ConnectionParameters(self.address))
             self.send_channel = self.send_connection.channel()
-            self.send_channel.exchange_declare(exchange='health_system_exchange', exchange_type='direct')
+            self.send_channel.exchange_declare(exchange='health_system_exchange', exchange_type='direct',
+                                            arguments={'x-message-ttl' : 0})
             return True
 
         except:
@@ -154,11 +155,14 @@ class client:
 
             self.receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
-                                            routing_key=receiver_type)
+                                            routing_key=receiver_type,
+                                            arguments={'x-message-ttl' : 0})
 
             self.receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
-                                            routing_key=receiver_type + '.' + socket.gethostbyname(socket.gethostname()))
+                                            routing_key=receiver_type + '.' + socket.gethostbyname(socket.gethostname()),
+                                            arguments={'x-message-ttl' : 0})
+            
             self.receive_channel.basic_consume(queue=queue_name, on_message_callback=callback_fun, auto_ack=True)
             threading.Thread(target=self.receive_channel.start_consuming).start()
             return True
