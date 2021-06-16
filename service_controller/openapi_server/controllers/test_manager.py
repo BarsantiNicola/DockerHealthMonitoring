@@ -11,6 +11,8 @@ from numpy.random import exponential
 import threading
 
 from rabbit import client
+
+    
 class tester:
     
     def test_callback(self, method, properties, x,body):
@@ -20,26 +22,24 @@ class tester:
             self.rabbit.send_controller(json.dumps({
                     'command' : 'content',
                     'content' : 'data',
-                    'address' : '127.0.0.1'
+                    'address' : socket.gethostbyname(socket.gethostname())
                     }))
         
-    def __init__(self, address):
-        self.rabbit = client(address)
+    def __init__(self):
+        self._configuration = None
+        if self.load_conf() is True:
+        self.rabbit = client(self._configuration['address'])
         self.rabbit.allocate_receiver('manager',self.test_callback)
         self.start_execution()
     
     def start_execution(self):
-        self.rabbit.send_controller(json.dumps({
-                    'command' : 'started',
-                    'address' : '127.0.0.1'
-                    }))
         threading.Thread(target=self.heartbeat).start()
         while True:
             time.sleep(exponential(60))
             print("send update")
             self.rabbit.send_controller(json.dumps({
                     'command' : 'update',
-                    'address' : '127.0.0.1'
+                    'address' : socket.gethostbyname(socket.gethostname())
                     }))
     
     def heartbeat(self):
@@ -47,7 +47,22 @@ class tester:
             time.sleep(60)
             print('send heartbeat')
             self.rabbit.send_controller(json.dumps({
-                    'command' : 'alive',
-                    'address' : '127.0.0.1'
+                    'command' : 'live',
+                    'address' : socket.gethostbyname(socket.gethostname())
                     }))
+       
+    def load_conf(self) -> bool:
+        
+        try:
+            # file is putted inside the same folder of the script
+            with open('configuration','r') as reader:
+                # the content is organized as a json file
+                self._configuration = json.load(reader)
+                return True
             
+        except ValueError:
+            return False
+        except FileNotFoundError:
+            return False
+        
+tester('172.17.0.2')

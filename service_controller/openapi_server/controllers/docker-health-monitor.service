@@ -2,9 +2,10 @@
 Description=<project description>
 
 [Service]
-User=root
-WorkingDirectory=/home/root/components
-ExecStart=/bin/bash -c 'cd /root && source venv/bin/activate && python test.py'
+User=nico
+WorkingDirectory=/root/health_manager
+ExecStart=/bin/bash -c 'python3 test_manager.py'
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
