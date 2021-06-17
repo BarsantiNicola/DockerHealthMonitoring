@@ -32,7 +32,24 @@ class controller:
         self._info_lock = threading.Lock()       # lock for mutual exclusion on self.containers_data operations
         self._update_available = False           # verification for new pending updates received during container update
         self._logger = None          # class logger
-        
+        self._interface = {
+           'add_container' : self.add_container,
+           'add_host' : self.add_host,
+           'change_all_threshold' : self.change_all_threshold,
+           'change_threshold' : self.change_threshold,
+           'get_all_containers' : self.get_all_containers,
+           'get_container' : self.get_container,
+           'get_host_containers' : self.get_host_containers,
+           'remove_container' : self.remove_container,
+           'interface_manager' : self.remove_host,
+           'add_antagonists' : self.add_antagonists,
+           'add_host_antagonist' : self.add_host_antagonist,
+           'change_antagonists_config' : self.change_antagonists_config,
+           'change_host_antagonist_config' : self.change_host_antagonist_config,
+           'get_report' : self.get_report,
+           'remove_antagonists' : self.remove_antagonists,
+           'remove_host_antagonist' : self.remove_host_antagonist  
+        }
         self.initialize_logger()
         if self.load_conf() is False:   # load the configuration which contains the IP address of rabbitMQ
             return None
@@ -539,6 +556,11 @@ class controller:
                 self.set_container_content(message['address'], message['content'])
                 self.verify_pending_updates()
                 return
+            
+            if message['command'] == 'request':
+                self.interface_management(message)
+                return
+            
             if message['command'] == 'enable_test':
                 self._enable_test = True
                 return
@@ -569,3 +591,120 @@ class controller:
             
             self.verify_pending_updates()
             time.sleep(60)
+            
+    """ REST INTERFACE COMMUNICATION MANAGEMENT """
+
+    """ add a new controller identified by an ip address and a containerID to the service """
+    def add_container(self, message) -> dict:
+        # too add function to verify presence of a container
+        if self._rabbit.send_manager_unicast(json.dumps({
+                'command' : 'add_container',
+                'containerID' : message['containerID']
+        }, message['address']), message['address']) is True:
+            return {'code': 200, 'message': 'Request of adding the container on ' + message['address'] + ' sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+  
+    def add_host(self, message) -> dict:
+        if self.verify_docker_presence(message['address']) is True: 
+            return { 'code' : 500, 'message' : 'host already registered'}
+        if self.load_docker_manager(message['address'], message['password']) is False:
+            return {'code': 501, 'message' : 'Error during the host registration' }
+        return {'code': 200, 'message' : 'Docker manager allocated on '+message['address']}
+    
+    def change_all_threshold(self, message) -> dict:
+        if self._rabbit.send_manager_multicast(json.dumps({
+                'command' : 'container_threshold',
+                	'threshold': message['threshold']
+        })) is True:
+            return {'code': 200, 'message': 'Request of threshold change sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+
+    def change_threshold(self, message) -> dict:
+        if self._rabbit.send_manager_unicast(json.dumps({
+                'command' : 'container_threshold',
+                	'threshold': message['threshold']
+        }), message['address']) is True:
+            return {'code': 200, 'message': 'Request of threshold change sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+        
+    def get_all_containers(self, message) -> dict:
+        return {'code': 200, 'message' : self.get_containers_content()}
+    
+    def get_container(self, message):
+        # todo verify container presence
+        return {'code': 200, 'message' : self.get_container_content(message['address'])}
+    
+    def get_host_containers(self, message):
+        if self.verify_docker_presence(message['address']) is False:
+            return {'code': 404, 'message' : "The request host isn't registered into the service"}
+        
+        return {'code': 200, 'message' : self.get_container_content(message['address'])}
+    
+    def remove_container(self, message):
+        # todo verify container presence
+        if self._rabbit.send_manager_unicast(json.dumps({
+                'command' : 'remove_container',
+                'containerID' : message['containerID']
+        }, message['address']), message['address']) is True:
+            return {'code': 200, 'message': 'Request of removing the container on ' + message['address'] + ' sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+    
+    def remove_host(self, message):
+        if self.verify_docker_presence(message['address']) is False: 
+            return { 'code' : 404, 'message' : 'host not present'}
+        if self.remove_docker_manager(message['address']) is False:
+            return {'code': 501, 'message' : 'Error during the host de-registration' }
+        return {'code': 200, 'message' : 'Docker manager removed from '+message['address']}        
+    
+    def add_antagonists(self, message):
+        if self._rabbit.send_antagonist_multicast(json.dumps({
+                'command' : 'start_antagonist',
+        })) is True:
+            return {'code': 200, 'message': 'Request of starting the antagonists sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+    
+    def add_antagonist(self, message):
+        if self._rabbit.send_antagonist_unicast(json.dumps({
+                'command' : 'start_antagonist',
+        }), message['address']) is True:
+            return {'code': 200, 'message': 'Request of starting the antagonist on ' + message['address'] + ' sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+    
+    def remove_antagonists(self, message):
+        if self._rabbit.send_antagonist_multicast(json.dumps({
+                'command' : 'stop_antagonist',
+        })) is True:
+            return {'code': 200, 'message': 'Request of stopping the antagonists sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+    
+    def remove_host_antagonist(self, message):
+        if self._rabbit.send_antagonist_unicast(json.dumps({
+                'command' : 'stop_antagonist',
+        }), message['address']) is True:
+            return {'code': 200, 'message': 'Request of stopping the antagonist on ' + message['address'] + ' sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+
+
+    def change_antagonists_config(self, message):
+        if self._rabbit.send_antagonist_multicast(json.dumps({
+                'command' : 'change_antagonist',
+                'heavy' : message['heavy'],
+                'balance' : message['balance']
+        })) is True:
+            return {'code': 200, 'message': 'Request of changing the antagonists sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+        
+    def change_host_antagonist_config(self, message):
+        if self._rabbit.send_antagonist_multicast(json.dumps({
+                'command' : 'change_antagonist',
+                'heavy' : message['heavy'],
+                'balance' : message['balance']
+        }), message['address']) is True:
+            return {'code': 200, 'message': 'Request of changing the antagonists sent'}
+        return {'code': 500, 'message': 'An error has occurred during the elaboration of the request'}
+        
+    
+    def interface_manager(self, message):
+        # map the inputs to the function blocks
+        self._interface[message['request']](message)
+         

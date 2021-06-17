@@ -1,12 +1,13 @@
 import connexion
 import six
-import rabbit
-
+from docker_controller import controller
 from openapi_server.models.inline_response200 import InlineResponse200  # noqa: E501
 from openapi_server.models.inline_response2001 import InlineResponse2001  # noqa: E501
 from openapi_server.models.inline_response2002 import InlineResponse2002  # noqa: E501
 from openapi_server import util
+import json
 
+control = controller()
 
 def add_container(container_id, hostname):  # noqa: E501
     """Add a new Docker container
@@ -20,7 +21,13 @@ def add_container(container_id, hostname):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    # todo verification hostname exists
+    control._rabbit.send_manager_unicast(json.dumps(
+            {
+                    'command' : 'container_add',
+                    'containerID' : container_id
+            }), hostname)
+    return InlineResponse200
 
 
 def add_host(hostname, address, username=None, password=None):  # noqa: E501
@@ -39,7 +46,11 @@ def add_host(hostname, address, username=None, password=None):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    
+    if control.load_docker_manager(address, password) is True:
+        return InlineResponse200
+    else:
+        return InlineResponse2001
 
 
 def change_all_threshold(body):  # noqa: E501
@@ -52,7 +63,11 @@ def change_all_threshold(body):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    return control._rabbit.send_manager_multicast(json.dumps({
+                'command' : 'container_threshold',
+                	'threshold': body['threshold']
+    }))
+    return InlineResponse200
 
 
 def change_threshold(hostname, body):  # noqa: E501
@@ -67,7 +82,11 @@ def change_threshold(hostname, body):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    return control._rabbit.send_manager_unicast(json.dumps({
+                'command' : 'container_threshold',
+                	'threshold': body['threshold']
+    }),hostname)
+    return InlineResponse200
 
 
 def get_all_containers():  # noqa: E501
@@ -78,7 +97,7 @@ def get_all_containers():  # noqa: E501
 
     :rtype: List[InlineResponse2002]
     """
-    return 'do some magic!'
+    return control.get_containers_content()
 
 
 def get_container(container_id, hostname):  # noqa: E501
@@ -106,7 +125,7 @@ def get_host_containers(hostname):  # noqa: E501
 
     :rtype: InlineResponse2001
     """
-    return 'do some magic!'
+    return control.get_container_content(hostname)
 
 
 def remove_container(container_id, hostname):  # noqa: E501
@@ -121,7 +140,14 @@ def remove_container(container_id, hostname):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    
+        # todo verification hostname exists
+    control._rabbit.send_manager_unicast(json.dumps(
+            {
+                    'command' : 'container_ignore',
+                    'containerID' : container_id
+            }), hostname)
+    return InlineResponse200
 
 
 def remove_host(hostname, password=None):  # noqa: E501
@@ -136,4 +162,6 @@ def remove_host(hostname, password=None):  # noqa: E501
 
     :rtype: None
     """
-    return 'do some magic!'
+    if control.remove_docker_manager(hostname) is False:
+        return InlineResponse2001
+    return InlineResponse200
