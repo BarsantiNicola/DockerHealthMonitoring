@@ -9,10 +9,10 @@ import logging
 import coloredlogs
 import sys
 
-""" 
-    class to manage the communications between all the elements of the service. It is based on the rabbitMQ
-    direct message exchange. Using routing keys we can send synchronous unicast messages or asynchronous multicast.
- """
+
+def test(message):
+    return message
+    
 class rabbit_client:
 
     """ initialize the rabbit_client class
@@ -211,7 +211,6 @@ class rabbit_client:
             self._logger.info("Request " + props.correlation_id + " completed")
         except KeyError:
             self._logger.error("Error on received request " + props.correlation_id + ": request type not supported: " + message['command'])
-            self._logger.error("Supported requests: " + self._responses.keys)
             response = {'command':'error', 'message':'command not found'}
         
         self._logger.debug("Sending the computed reply")
