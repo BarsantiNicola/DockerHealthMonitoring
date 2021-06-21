@@ -126,19 +126,23 @@ def start_manager ():
     global monitor_log
     global manager_ip
     n = 0
+    alive_freq = 0
     while (1):
         n +=1
         print("\nmonitoring log n:",n)
         update_ret = execute_monitor()
         
         if update_ret == 1 :                     
-            comm_client.send_controller_async()            
+            comm_client.send_controller_async(alive=False) # update message to the controller            
         
         for log in monitor_log:
             print(log)
         
-        msg = { "command" : "alive", "address" : manager_ip }
-        comm_client.send_controller_sync(msg, manager_ip)
+        alive_freq +=1
+        if alive_freq >=10:
+            comm_client.send_controller_async() # alive message to the controller every ~20 seconds
+            alive_freq=0
+        
         sleep(2)
 
 manager = threading.Thread(target=start_manager)
