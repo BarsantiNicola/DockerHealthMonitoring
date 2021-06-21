@@ -20,4 +20,4 @@ service docker-health-controller start
 docker run health-monitor-interface 
 
 iptables -t nat -A PREROUTING -p tcp -i eth0 --dport 8080 -j DNAT --to-destination 172.17.0.3:8080
-iptables -t nat -A PREROUTING -p tcp -i eth0 --dport 5672 -j DNAT --to-destination 127.0.0.1:5672
+# todo enable rabbitmq on localhost

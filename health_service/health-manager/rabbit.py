@@ -8,12 +8,11 @@ import json
 import logging
 import coloredlogs
 import sys
-from datetime import datetime
-from datetime import timedelta
 
-def test(message):
-    return message
-    
+""" 
+    class to manage the communications between all the elements of the service. It is based on the rabbitMQ
+    direct message exchange. Using routing keys we can send synchronous unicast messages or asynchronous multicast.
+ """
 class rabbit_client:
 
     """ initialize the rabbit_client class
@@ -46,22 +45,13 @@ class rabbit_client:
         # type of receiver
         self._receiver_type = receiver_type
         
-        # maximum waiting time for a reply
-        if receiver_type == 'controller':
-            self._waiting_time = timedelta(seconds=15)
-        elif receiver_type == 'manager':
-            self._waiting_time = timedelta(seconds=10)
-        elif receiver_type == 'interface':
-            self._waiting_time = timedelta(seconds=25)
-        else:
-            self._waiting_time = timedelta(seconds=5)
         # lock for mutual exclusion on _responses
         self._responses_lock = threading.Lock()   
         
         # dictionary of all the command to response linked with a function
         self._responses = responses
         self._logger = None
-            
+        
         self._initialize_logger()   # initialization of the logger
         self._generate_channel()    # generation of the rabbitMQ channels
         self._allocate_receiver()  # allocation of thread for message receival
@@ -214,24 +204,15 @@ class rabbit_client:
         # this is an information used by the client, not to be shared outside
         sender = message['sender']
         del message["sender"]
-        if props.correlation_id is None:
-            self._logger.info("New async message received. Type: "+ message['command'])
-        else:
-            self._logger.info("New message received. Type: " + message['command'] + " Id: "+ props.correlation_id)
+        
+        self._logger.info("New message received. Type: " + message['command'] + " Id: "+ props.correlation_id)
         try:
             response = self._responses[message['command']](message) # we use a set of given command -> response
-            if props.correlation_id is None:
-                self._logger.info("Management of request " + message['command'] +" completed")
-                return
-            else:    
-                self._logger.info("Request " + props.correlation_id + " completed")
+            self._logger.info("Request " + props.correlation_id + " completed")
         except KeyError:
-            if props.correlation_id is None:
-                self._logger.error("Error on received request, type not supported: " + message['command'])
-                return
-            else:
-                self._logger.error("Error on received request " + props.correlation_id + ": request type not supported: " + message['command'])
-                response = {'command':'error', 'message':'command not found'}
+            self._logger.error("Error on received request " + props.correlation_id + ": request type not supported: " + message['command'])
+            self._logger.error("Supported requests: " + self._responses.keys)
+            response = {'command':'error', 'message':'command not found'}
         
         self._logger.debug("Sending the computed reply")
         self._send_channel.basic_publish(exchange='health_system_exchange',
@@ -261,11 +242,11 @@ class rabbit_client:
         self._logger.debug("Starting verification of environment")
         if self._address is None or message is None or address is None:
             self._logger.error("Error, the given parameters cannot be None")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
 
         if self._send_connection is None and self._generate_channel() is False:
             self._logger.error("Error, client not connected")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
         self._logger.debug("Environment verification succeded")
         
         try:
@@ -280,15 +261,10 @@ class rabbit_client:
                                         ),
                                         body=json.dumps(message))
             self._logger.debug("Request " + correlation_id + " sent. Waiting reply")
-            
-            expire = datetime.now() + self._waiting_time             
-            while self._check_result(correlation_id) is False and expire > datetime.now():
+                           
+            while self._check_result(correlation_id) is False:
                 self._receive_connection.process_data_events()
-            
-            if expire < datetime.now():
-                self._logger.error("Destination antagonist at " + address +" unreachable")
-                return {'command':'error', 'message':'destination unreachable', 'type':'unreachable'}
-            
+                
             self._logger.debug("Reply to request " + correlation_id + " received")    
             return self._get_result(correlation_id)
         
@@ -299,7 +275,40 @@ class rabbit_client:
                 return self.send_antagonist_unicast(message, address, False)
          
         self._logger.error("Error. Unable to contact the broker. Connection down")
-        return {}
+        return None
+
+    """ send a multicast message to the antagonists
+        Parameters:
+            message(dict): the message to be sent
+            reply(bool): to not be used. Its used by the system
+        
+        Return(bool): define if the request is sent or not   
+    """
+    def send_antagonist_multicast(self, message, reply=True):
+
+        self._logger.debug("Starting verification of environment")
+        if self._address is None or message is None:
+            self._logger.error("Error, the given parameters cannot be None")
+            return False
+
+        if self._send_connection is None and self._generate_channel() is False:
+            self._logger.error("Error, client not connected")
+            return False
+        self._logger.debug("Environment verification succeded")
+        
+        try:
+            self._logger.debug("Sending multicast request to all the antagonists")
+            self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist', body=message)
+            self._logger.debug("Request correctly sent")
+            return True
+        except:
+            if reply is True:
+                self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
+                self._generate_channel()
+                return self._send_antagonist_multicast(message, False)
+            
+        self._logger.error("Error. Unable to contact the broker. Connection down")
+        return False
 
     """ send a unicast message to a manager
         Parameters:
@@ -314,11 +323,11 @@ class rabbit_client:
         self._logger.debug("Starting verification of environment")
         if self._address is None or message is None or address is None:
             self._logger.error("Error, the given parameters cannot be None")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
 
         if self._send_connection is None and self._generate_channel() is False:
             self._logger.error("Error, client not connected")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
         self._logger.debug("Environment verification succeded")
         try:
             correlation_id = ''.join(random.choices(string.ascii_uppercase +
@@ -331,33 +340,64 @@ class rabbit_client:
                                             ),
                                             body=json.dumps(message))
 
-            expire = datetime.now() + self._waiting_time         
-            while self._check_result(correlation_id) is False and expire > datetime.now():
-                self._receive_connection.process_data_events()
-            
-            if expire < datetime.now():
-                self._logger.error("Destination manager at " + address +" unreachable")
-                return {'command':'error', 'message':'destination unreachable', 'type':'unreachable'}
-            
+            self._logger.debug("Request " + correlation_id + " sent. Waiting reply")                                            
+            while self._check_response(correlation_id) is False:
+                self._connection.process_data_events()
+                
             self._logger.debug("Reply to request " + correlation_id + " received")   
-            return self._get_result(correlation_id)
+            return self._get_response(correlation_id)
         
         except:
             if reply is True:
                 self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
                 self._generate_channel()
                 return self.send_manager_unicast(message, address, False)
+            
+        self._logger.error("Error. Unable to contact the broker. Connection down")
+        return False
+
+    """ send a multicast message to the antagonists
+        Parameters:
+            message(dict): the message to be sent
+            reply(bool): to not be used. Its used by the system
+        
+        Return(bool): define if the request is sent or not   
+    """
+    def send_manager_multicast(self, message, reply=True) -> bool:
+
+        self._logger.debug("Starting verification of environment")
+        if self._address is None or message is None:
+            self._logger.error("Error, the given parameters cannot be None")
+            return False
+
+        if self._send_connection is None and self._generate_channel() is False:
+            self._logger.error("Error, client not connected")
+            return False
+        self._logger.debug("Environment verification succeded")
+        
+        try:
+            self._logger.debug("Sending multicast request to all the managers")
+            self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='manager', body=message)
+            self._logger.debug("Request correctly sent")
+            return True
+        
+        except:
+            if reply is True:
+               self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
+               self._generate_channel()
+               return self.send_manager_multicast(message, False)
+           
+        self._logger.error("Error. Unable to contact the broker. Connection down")
+        return False
 
     """ send a multicast message to the antagonists. To be used from the managers to 
         generate an asynchronous notification of updates to the controller 
         Parameters:
             reply(bool): to not be used. Its used by the system
-            alive(bool): identifies the type of message to be sent. If true(default) it sends
-                         a keepalive message otherwise a message notification message
-                         
+        
         Return(bool): define if the request is sent or not   
     """
-    def send_controller_async(self, alive=True, reply=True) -> bool:
+    def send_controller_async(self, reply=True) -> bool:
 
         if self._address is None:
             return False
@@ -365,13 +405,8 @@ class rabbit_client:
         if self._send_connection is None and self._generate_channel() is False:
             return False
         try:
-            if alive is True:
-                message = {'command':'live', 'address': socket.gethostbyname(socket.gethostname())}
-                message['sender'] =self._receiver_type+'.callback.' + socket.gethostbyname(socket.gethostname())
-            else:
-                message = {'command':'update', 'address': socket.gethostbyname(socket.gethostname())}
-                message['sender'] =self._receiver_type+'.callback.' + socket.gethostbyname(socket.gethostname())
-            self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller', body=json.dumps(message))
+            message = {'command':'update', 'address': socket.gethostbyname(socket.gethostname())}
+            self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller', body=message)
             return True
         except:
             if reply is True:
@@ -392,37 +427,29 @@ class rabbit_client:
         self._logger.debug("Starting verification of environment")
         if self._address is None or message is None or address is None:
             self._logger.error("Error, the given parameters cannot be None")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
 
         if self._send_connection is None and self._generate_channel() is False:
             self._logger.error("Error, client not connected")
-            return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+            return False
         self._logger.debug("Environment verification succeded")
         try:
             correlation_id = ''.join(random.choices(string.ascii_uppercase +
                     string.digits, k = 10))
             self._logger.debug("Sending request " + correlation_id)
             message['sender'] =self._receiver_type+'.callback.' + socket.gethostbyname(socket.gethostname())
-            try:
-                self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller.' + address,
+            self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller.' + address,
                                             properties=pika.BasicProperties(
                                                     correlation_id=correlation_id
                                             ),
                                             body=json.dumps(message))
-            except ValueError:
-                self._logger.error("Error, invalid message given. It must be a dictionary")
-                return {'command':'error', 'message':'invalid parameters'}
-            
-            expire = datetime.now() + self._waiting_time              
-            while self._check_result(correlation_id) is False and expire > datetime.now():
-                self._receive_connection.process_data_events()
-            
-            if expire < datetime.now():
-                self._logger.error("Destination controller at " + address +" unreachable")
-                return {'command':'error', 'message':'destination unreachable', 'type':'unreachable'}
+
+            self._logger.debug("Request " + correlation_id + " sent. Waiting reply")                                            
+            while self._check_response(correlation_id) is False:
+                self._connection.process_data_events()
                 
             self._logger.debug("Reply to request " + correlation_id + " received")   
-            return self._get_result(correlation_id)
+            return self._get_response(correlation_id)
         
         except:
             if reply is True:
@@ -431,6 +458,6 @@ class rabbit_client:
                 return self.send_controller_sync(message, address, False)
             
         self._logger.error("Error. Unable to contact the broker. Connection down")
-        return {'command':'error', 'message':'internal error', 'type':'internal_error'}
+        return False
 
         
