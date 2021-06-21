@@ -1,0 +1,11 @@
+[Unit]
+Description=<project description>
+
+[Service]
+User=root
+WorkingDirectory=/root/health_manager/health-controller
+ExecStart=/bin/bash -c 'python docker-controller.py'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
