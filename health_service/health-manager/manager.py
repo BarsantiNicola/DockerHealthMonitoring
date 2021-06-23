@@ -147,5 +147,7 @@ def start_manager ():
 
 manager = threading.Thread(target=start_manager)
 manager.start()
+while True:
+	pass
 
 

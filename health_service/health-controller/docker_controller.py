@@ -76,7 +76,7 @@ class controller:
         self._logger.debug("Started periodic service of heartbeat management")
         threading.Thread(target=self._heartbeat_manager).start()
         self._logger.debug("Service started")
-        self._logger.info("Controller initialization completed")    
+        self._logger.info("Controller initialization completed at " + socket.gethostbyname(socket.gethostname()))    
             
     """ UTILITY FUNCTIONS """
     
@@ -119,7 +119,7 @@ class controller:
         try:
             # connect the client to the rabbitMQ broker 
             self._logger.debug("Connecting to the rabbitMQ broker..")
-            self._rabbit = rabbit_client(socket.gethostbyname(socket.gethostname()),'controller',self._interface)
+            self._rabbit = rabbit_client('172.16.3.167','controller',self._interface)
             self._logger.debug("Correctly connected to the broker")
                 
         except KeyError:
@@ -256,8 +256,8 @@ class controller:
                     sftp.mkdir('/root/health_manager')
 
                     # inside the folder we put all the files present into the components subdirectory
-                    for item in os.listdir('../health-manager'):
-                        sftp.put('../health-manager/'+item,'/root/health_manager/'+item)
+                    for item in os.listdir('/root/health_service/health-manager'):
+                        sftp.put('/root/health_service/health-manager/'+item,'/root/health_manager/'+item)
                 except OSError:
                     self._logger.warning('Folder already present') # if the folder is already present. 
 
@@ -270,7 +270,7 @@ class controller:
                 # the service definition must be set as executable
                 ssh.exec_command('apt-get install -y python3.7 pip')
                 ssh.exec_command('update-alternatives  --set python /usr/bin/python3.7')
-                ssh.exec_command('pip install --no-cache-dir -r /root/health_manager/requirements.txt')
+                ssh.exec_command('pip install --no-cache-dir -r /root/health_service/requirements.txt')
                 ssh.exec_command('chmod 0777 /etc/systemd/system/docker-health-monitor.service')
                 ssh.exec_command('systemctl daemon-reload')
                 ssh.exec_command('service docker-health-monitor start')
@@ -746,4 +746,7 @@ class controller:
                 'balance' : message['balance']
         }, message['address'])
     
-control = controller()     
+controller()
+while True:
+	pass    
+ 

@@ -48,13 +48,13 @@ class rabbit_client:
         
         # maximum waiting time for a reply
         if receiver_type == 'controller':
-            self._waiting_time = timedelta(seconds=15)
+            self._waiting_time = timedelta(seconds=30)
         elif receiver_type == 'manager':
             self._waiting_time = timedelta(seconds=10)
         elif receiver_type == 'interface':
-            self._waiting_time = timedelta(seconds=25)
+            self._waiting_time = timedelta(seconds=60)
         else:
-            self._waiting_time = timedelta(seconds=5)
+            self._waiting_time = timedelta(seconds=15)
         # lock for mutual exclusion on _responses
         self._responses_lock = threading.Lock()   
         
@@ -105,9 +105,15 @@ class rabbit_client:
         
         try:
             self._logger.debug("Starting creation of connections to rabbitMQ message broker")
-            self._send_connection = pika.BlockingConnection(pika.ConnectionParameters(self._address))
-            self._callback_connection = pika.BlockingConnection(pika.ConnectionParameters(self._address))
-            self._receive_connection = pika.BlockingConnection(pika.ConnectionParameters(self._address))
+            credentials = pika.PlainCredentials('health-monitor', 
+                                                '2a55f70a841f18b97c3a7db939b7adc9e34a0f1b')
+            parameters = pika.ConnectionParameters(self._address,
+                                       5672,
+                                       '/',
+                                       credentials)
+            self._send_connection = pika.BlockingConnection(parameters)
+            self._callback_connection = pika.BlockingConnection(parameters)
+            self._receive_connection = pika.BlockingConnection(parameters)
             self._send_channel = self._send_connection.channel()
             self._send_channel.exchange_declare(exchange='health_system_exchange', exchange_type='direct',
                                             arguments={'x-message-ttl' : 0})
@@ -135,16 +141,17 @@ class rabbit_client:
     def _get_result(self, correlation_id):
         try:
             with self._responses_lock:
+                self._logger.debug("RESPONSE: " + json.dumps(self._responses[correlation_id]))
                 value = self._responses[correlation_id]
                 del self._responses[correlation_id]
-            return value
+                return value
         except KeyError: # if the key isn't present it will raise a KeyError
             return None
     
     """ adds the reply of a request to the archive """
     def _add_result(self, correlation_id, value):
         #with self._responses_lock:
-        self._responses[correlation_id] = value
+        self._responses[correlation_id] = str(value)
         
     """ MESSAGE RECEIVAL MANAGEMENT """
 
@@ -171,19 +178,27 @@ class rabbit_client:
             self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
                                             routing_key=self._receiver_type,
-                                            arguments={'x-message-ttl' : 0})
+                                                arguments={'x-message-ttl' : 0})
 
-            self._receive_channel.queue_bind(exchange='health_system_exchange',
+            if self._receiver_type == 'interface':
+                self._receive_channel.queue_bind(exchange='health_system_exchange',queue=queue_name,routing_key=self._receiver_type + '.' + self._address,arguments={'x-message-ttl' : 0})
+            
+                self._callback_channel.queue_bind( exchange='health_system_exchange',
+                                               queue=callback_queue,
+                                               routing_key=self._receiver_type+'.callback.'+ self._address,
+                                                   arguments={'x-message-ttl' : 0})
+            else:    
+                self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
                                             routing_key=self._receiver_type + '.' + socket.gethostbyname(socket.gethostname()),
-                                            arguments={'x-message-ttl' : 0})
+                                                arguments={'x-message-ttl' : 0})
             
-            self._callback_channel.queue_bind( exchange='health_system_exchange',
+                self._callback_channel.queue_bind( exchange='health_system_exchange',
                                                queue=callback_queue,
                                                routing_key=self._receiver_type+'.callback.'+ socket.gethostbyname(socket.gethostname()),
                                                arguments={'x-message-ttl' : 0})
             
-
+            self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+self._address + " : callback." + self._receiver_type + "." + self._address)
             self._callback_channel.basic_consume(queue=callback_queue, on_message_callback=self._on_response, auto_ack=True)
             self._receive_channel.basic_consume(queue=queue_name, on_message_callback=self._message_callback, auto_ack=True)
             self._logger.debug("Queues correctly binded")
@@ -233,7 +248,7 @@ class rabbit_client:
                 self._logger.error("Error on received request " + props.correlation_id + ": request type not supported: " + message['command'])
                 response = {'command':'error', 'message':'command not found'}
         
-        self._logger.debug("Sending the computed reply")
+        self._logger.debug("Sending the computed reply to " + sender)
         self._send_channel.basic_publish(exchange='health_system_exchange',
                      routing_key= sender,
                      properties=pika.BasicProperties(correlation_id = \
@@ -244,7 +259,7 @@ class rabbit_client:
     """ callback function called by the callback queue for the management of the incoming replies """
     def _on_response(self, ch, method, props, body):
         self._logger.debug("Received reply to request " + props.correlation_id)
-        self._add_result(props.correlation_id, body)
+        self._add_result(props.correlation_id, json.loads(body))
         
     """ MESSAGE SENDERS"""
     
@@ -401,8 +416,8 @@ class rabbit_client:
         try:
             correlation_id = ''.join(random.choices(string.ascii_uppercase +
                     string.digits, k = 10))
-            self._logger.debug("Sending request " + correlation_id)
-            message['sender'] =self._receiver_type+'.callback.' + socket.gethostbyname(socket.gethostname())
+            self._logger.debug("Sending request " + correlation_id + " to controller."+address)
+            message['sender'] =self._receiver_type+'.callback.' + self._address
             try:
                 self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='controller.' + address,
                                             properties=pika.BasicProperties(
@@ -421,14 +436,17 @@ class rabbit_client:
                 self._logger.error("Destination controller at " + address +" unreachable")
                 return {'command':'error', 'message':'destination unreachable', 'type':'unreachable'}
                 
-            self._logger.debug("Reply to request " + correlation_id + " received")   
-            return self._get_result(correlation_id)
-        
         except:
             if reply is True:
                 self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
                 self._generate_channel()
-                return self.send_controller_sync(message, address, False)
+                return self.send_controller_sync(message, address, False)        
+            return "ERROR"
+        
+        self._logger.debug("Reply to request " + correlation_id + " received")   
+        return self._get_result(correlation_id)
+        
+
             
         self._logger.error("Error. Unable to contact the broker. Connection down")
         return {'command':'error', 'message':'internal error', 'type':'internal_error'}

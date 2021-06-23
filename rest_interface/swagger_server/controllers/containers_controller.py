@@ -1,11 +1,12 @@
 import connexion
 import six
 import socket
+import json
 
 from swagger_server import util
 from swagger_server.rabbit import rabbit_client
 
-client = rabbit_client('172.17.0.2','interface',{})
+client = rabbit_client('172.16.3.167','interface',{})
 
 def add_container(container_id, address):  # noqa: E501
     """Add a new Docker container
@@ -23,7 +24,8 @@ def add_container(container_id, address):  # noqa: E501
             'command' : 'add_container',
             'address' : address,
             'containerID' : container_id }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
+    print("RESULT GETTED: ")
 
 
 def add_host(address, password):  # noqa: E501
@@ -42,8 +44,7 @@ def add_host(address, password):  # noqa: E501
             'command' : 'add_host',
             'address' : address,
             'password' : password }
-    return client.send_controller_sync(message, address)
-
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 def change_all_threshold(threshold):  # noqa: E501
     """Update the threshold of all the docker managers
@@ -59,7 +60,7 @@ def change_all_threshold(threshold):  # noqa: E501
             'command' : 'change_all_threshold',
             'address' : socket.gethostbyname(socket.gethostname()),
             'threshold' : threshold }
-    return client.send_controller_sync(message, socket.gethostbyname(socket.gethostname()))
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
 def change_threshold(address, threshold):  # noqa: E501
@@ -78,7 +79,7 @@ def change_threshold(address, threshold):  # noqa: E501
             'command' : 'change_threshold',
             'address' : address,
             'threshold' : threshold }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
 def get_all_containers():  # noqa: E501
@@ -93,10 +94,10 @@ def get_all_containers():  # noqa: E501
             'command' : 'get_all_containers',
             'address' : socket.gethostbyname(socket.gethostname()),
     }
-    return client.send_controller_sync(message, socket.gethostbyname(socket.gethostname()))
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
-def get_container(container_id, address):  # noqa: E501
+def get_container(container_id,address):  # noqa: E501
     """Get a container
 
     Returns the information about a container identified by the ip address of the target machine and the containerID # noqa: E501
@@ -112,7 +113,7 @@ def get_container(container_id, address):  # noqa: E501
             'command' : 'get_container',
             'address' : address,
             'containerID' : container_id }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
 def get_host_containers(address):  # noqa: E501
@@ -129,7 +130,7 @@ def get_host_containers(address):  # noqa: E501
             'command' : 'get_host_containers',
             'address' : address,
     }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
 def remove_container(container_id, address):  # noqa: E501
@@ -148,7 +149,7 @@ def remove_container(container_id, address):  # noqa: E501
             'command' : 'remove_container',
             'address' : address,
             'containerID' : container_id }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))
 
 
 def remove_host(address, password):  # noqa: E501
@@ -167,4 +168,4 @@ def remove_host(address, password):  # noqa: E501
             'command' : 'remove_host',
             'address' : address,
             'password' : password }
-    return client.send_controller_sync(message, address)
+    return json.dumps(client.send_controller_sync(message, '172.16.3.167'))

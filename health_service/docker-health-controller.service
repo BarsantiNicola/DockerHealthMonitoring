@@ -3,9 +3,10 @@ Description=<project description>
 
 [Service]
 User=root
-WorkingDirectory=/root/health_manager/health-controller
-ExecStart=/bin/bash -c 'python docker-controller.py'
-Restart=always
+WorkingDirectory=/root/health_service/health-controller
+ExecStart=/bin/bash -c 'python3 docker_controller.py'
 
 [Install]
 WantedBy=multi-user.target
+
+
