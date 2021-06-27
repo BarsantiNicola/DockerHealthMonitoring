@@ -61,7 +61,8 @@ class rabbit_client:
         # dictionary of all the command to response linked with a function
         self._responses = responses
         self._logger = None
-            
+        self._exit = True
+        
         self._initialize_logger()   # initialization of the logger
         self._generate_channel()    # generation of the rabbitMQ channels
         self._allocate_receiver()  # allocation of thread for message receival
@@ -83,6 +84,8 @@ class rabbit_client:
             self._logger.addHandler(handler)
             self._logger.setLevel(logging.DEBUG)   # logger threshold  
 
+    def close_all(self):
+        self._logger.debug("Closing all rabbitMQ message receivers thread")
     # PRIVATE FUNCTIONS
 
     """ verification of an IPv4 address """
@@ -151,7 +154,7 @@ class rabbit_client:
     """ adds the reply of a request to the archive """
     def _add_result(self, correlation_id, value):
         #with self._responses_lock:
-        self._responses[correlation_id] = str(value)
+        self._responses[correlation_id] = value
         
     """ MESSAGE RECEIVAL MANAGEMENT """
 
@@ -187,6 +190,8 @@ class rabbit_client:
                                                queue=callback_queue,
                                                routing_key=self._receiver_type+'.callback.'+ self._address,
                                                    arguments={'x-message-ttl' : 0})
+                self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+self._address + " : callback." + self._receiver_type + "." + self._address)
+
             else:    
                 self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
@@ -197,8 +202,8 @@ class rabbit_client:
                                                queue=callback_queue,
                                                routing_key=self._receiver_type+'.callback.'+ socket.gethostbyname(socket.gethostname()),
                                                arguments={'x-message-ttl' : 0})
-            
-            self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+self._address + " : callback." + self._receiver_type + "." + self._address)
+                self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+socket.gethostbyname(socket.gethostname()) + " : callback." + self._receiver_type + "." + socket.gethostbyname(socket.gethostname()))
+
             self._callback_channel.basic_consume(queue=callback_queue, on_message_callback=self._on_response, auto_ack=True)
             self._receive_channel.basic_consume(queue=queue_name, on_message_callback=self._message_callback, auto_ack=True)
             self._logger.debug("Queues correctly binded")
@@ -288,6 +293,8 @@ class rabbit_client:
             correlation_id = ''.join(random.choices(string.ascii_uppercase +
                     string.digits, k = 10))
             self._logger.debug("Sending request " + correlation_id)
+
+                
             message['sender'] =self._receiver_type+'.callback.' + socket.gethostbyname(socket.gethostname())
             self._send_channel.basic_publish(exchange='health_system_exchange', routing_key='antagonist.' + address,
                                         properties=pika.BasicProperties(
@@ -298,7 +305,7 @@ class rabbit_client:
             
             expire = datetime.now() + self._waiting_time             
             while self._check_result(correlation_id) is False and expire > datetime.now():
-                self._receive_connection.process_data_events()
+                pass
             
             if expire < datetime.now():
                 self._logger.error("Destination antagonist at " + address +" unreachable")
@@ -324,7 +331,7 @@ class rabbit_client:
             
         Return(dict): the reply to the request
     """
-    def send_manager_unicast(self, message, address, reply=True) -> bool:
+    def send_manager_unicast(self, message, address, reply=True) -> dict:
 
         self._logger.debug("Starting verification of environment")
         if self._address is None or message is None or address is None:
@@ -346,9 +353,10 @@ class rabbit_client:
                                             ),
                                             body=json.dumps(message))
 
-            expire = datetime.now() + self._waiting_time         
+
+            expire = datetime.now() + self._waiting_time             
             while self._check_result(correlation_id) is False and expire > datetime.now():
-                self._receive_connection.process_data_events()
+                pass
             
             if expire < datetime.now():
                 self._logger.error("Destination manager at " + address +" unreachable")
@@ -357,7 +365,8 @@ class rabbit_client:
             self._logger.debug("Reply to request " + correlation_id + " received")   
             return self._get_result(correlation_id)
         
-        except:
+        except Exception as e:
+            self._logger.debug("ERROR: " + str(e))
             if reply is True:
                 self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
                 self._generate_channel()
@@ -402,7 +411,7 @@ class rabbit_client:
             
         Return(dict): the reply to the request
     """
-    def send_controller_sync(self, message, address, reply=True) -> bool:
+    def send_controller_sync(self, message, address, reply=True) -> dict:
 
         self._logger.debug("Starting verification of environment")
         if self._address is None or message is None or address is None:
@@ -428,9 +437,9 @@ class rabbit_client:
                 self._logger.error("Error, invalid message given. It must be a dictionary")
                 return {'command':'error', 'message':'invalid parameters'}
             
-            expire = datetime.now() + self._waiting_time              
+            expire = datetime.now() + self._waiting_time             
             while self._check_result(correlation_id) is False and expire > datetime.now():
-                self._receive_connection.process_data_events()
+                pass
             
             if expire < datetime.now():
                 self._logger.error("Destination controller at " + address +" unreachable")

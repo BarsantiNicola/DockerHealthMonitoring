@@ -20,7 +20,7 @@ import socket
 """
         
 class controller:
-    
+     
     def __init__(self):
         self._aggregation_time = 30  # time interval for the pending updates elaboration
         self._enable_test = False    # enable the collect of data for testing purpouse
@@ -31,6 +31,7 @@ class controller:
         self._docker_lock = threading.Lock()     # lock for mutual exclusion on self.dockers operations
         self._info_lock = threading.Lock()       # lock for mutual exclusion on self.containers_data operations
         self._logger = None          # class logger
+        self._exit = True
         
         self._interface = {
            'live' : self._set_heartbeat,
@@ -68,7 +69,7 @@ class controller:
             return
         
         # starting initial update of containers
-        self._initialize_all_containers()
+        #self._initialize_all_containers()
         
         self._logger.debug("Started periodic service of pending management")
         threading.Thread(target=self._pending_manager).start()
@@ -119,14 +120,18 @@ class controller:
         try:
             # connect the client to the rabbitMQ broker 
             self._logger.debug("Connecting to the rabbitMQ broker..")
-            self._rabbit = rabbit_client('172.16.3.167','controller',self._interface)
+            self._rabbit = rabbit_client(self._configuration['address'],'controller',self._interface)
             self._logger.debug("Correctly connected to the broker")
-                
+            return True
+        
         except KeyError:
             self._logger.error('Error, address field not found')
             
         return False 
-            
+     
+    def close_all(self):
+        self._exit = False
+        self._rabbit.close_all()
     """ DOCKER MANAGERS MANAGEMENT """
             
     """ [ DATA STORING ] """
@@ -255,12 +260,11 @@ class controller:
                     # we have to manually generate the folder
                     sftp.mkdir('/root/health_manager')
 
-                    # inside the folder we put all the files present into the components subdirectory
-                    for item in os.listdir('/root/health_service/health-manager'):
-                        sftp.put('/root/health_service/health-manager/'+item,'/root/health_manager/'+item)
                 except OSError:
                     self._logger.warning('Folder already present') # if the folder is already present. 
-
+                # inside the folder we put all the files present into the components subdirectory
+                for item in os.listdir('/root/health_service/health-manager'):
+                    sftp.put('/root/health_service/health-manager/'+item,'/root/health_manager/'+item)
                 # the manager/antagonist will run as a service on the remove machine. We need to put its definition
                 sftp.put('../docker-health-monitor.service','/etc/systemd/system/docker-health-monitor.service')
                 self._logger.debug("Data completely transfered to the machine " + message['address'])
@@ -364,7 +368,7 @@ class controller:
         If the controller is still waiting an update from the manager the flag isn't notified """
     def _set_container_status_update_present(self, message) -> bool:
         try:
-            message['message']
+            message['address']
         except KeyError:
             self._logger.error("Error, all the update messages must contain 'address' field")
             return False
@@ -418,9 +422,9 @@ class controller:
         if containers['status'] == 'offline':
             return "Docker Manager: "+ containers['address'] + " Status: OFFLINE\n NO CONTENT AVAILABLE"
         if containers['status'] == 'update_present':
-            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED\n Content: "+ containers['content']
+            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED\n Content: "+ json.dumps(containers['content'])
         if containers['status'] == 'updated':
-            return "Docker Manager: "+ containers['address'] + " Status: UPDATED\n Content: "+ containers['content']
+            return "Docker Manager: "+ containers['address'] + " Status: UPDATED\n Content: "+ json.dumps(containers['content'])
         return ''
     
     """ gets the content for a specific docker manager container identified by its address and containerID """
@@ -449,7 +453,8 @@ class controller:
         if dock['status'] == 'update_present':
             self._logger.debug( "Status of the manager: update_present. Sending a content request")
             result = self._rabbit.send_manager_unicast(json.dumps({
-                    "command" : "give_content"
+                    "command" : "give_content",
+                    'address' : dock['address']
             }), dock['address'])
             
             try:
@@ -565,69 +570,39 @@ class controller:
         return False
            
     """ [ MAIN FUNCTIONALITIES ] """
-    
-    """ management of messages received by the controller. Supported functionalities: 
-        - update containers 
-        - heartbeat system
-        - async containers management
-    """
-    def command_management(self, message) -> None:
-        
-        self._logger.debug("Received message from "+message['address'] +". Message type: " + message['command'])
-        
-        # heartbeat system. Periodically managers will send a live message to inform that they are active.
-        # If no heartbeat messages are received in last 5 minutes the manager is defined as offline
-        try:
-            if message['command'] == 'live':
-                self.set_heartbeat(message['address'])
-                return
-                
-            if message['command'] == 'update':
-                self.set_container_status_update_present(message['address'])
-                return
-        
-            if message['command'] == 'content':
-                self.set_container_content(message['address'], message['content'])
-                self.verify_pending_updates()
-                return
-            
-            if message['command'] == 'request':
-                self.interface_management(message)
-                return
-            
-            if message['command'] == 'enable_test':
-                self._enable_test = True
-                return
-            if message['command'] == 'disable_test':
-                self._enable_test = False
-                return
-        except:
-            self._logger.debug("Unable to understand the content of the request")
-         
+             
     def _pending_manager(self) -> None:
-        while True:
+        while self._exit:
             self._logger.debug("Executing pending updates verification")
+            docker_request = list()
             with self._info_lock:
                 for docker in self._containers_data:
                     if docker['status'] == 'update_present':
-                        self._rabbit.send_manager_unicast(json.dumps({
-                                    "command" : "give_content"
-                        }), docker['address'])
+                        docker_request.append(docker['address'])
+            for docker in docker_request:
+                self._logger.debug("Found a pending update. Start synchronization for manager at " + docker['address'])
+                result = self._rabbit.send_manager_unicast({
+                            "command" : "give_content"
+                }, docker['address'])
+                self._set_container_content(docker['address'], result['content'])
             time.sleep(self._aggregation_time)
-            
+        self._logger.debug("Closing pending manager thread")   
+        
     def _heartbeat_manager(self) -> None:
-        while True:
+        while self._exit:
             self._logger.debug("Executing hearbeat verification")
             with self._info_lock:
                 for docker in self._containers_data:
                     if docker['last_alive'] < datetime.now():
                         docker['status'] = 'offline'
             
-            self.verify_pending_updates()
             time.sleep(60)
+        self._logger.debug("Closing heartbeat thread")
             
     """ REST INTERFACE COMMUNICATION MANAGEMENT """
 
+    """ TO MANAGER """
+    
     """ add a new controller identified by an ip address and a containerID to the service """
     def add_container(self, message) -> dict:
         try:
@@ -660,12 +635,12 @@ class controller:
         }, message['address'])
             
     def change_all_threshold(self, message) -> dict:
-        if self._rabbit.send_manager_multicast(json.dumps({
-                    'command' : 'container_threshold',
-                	'threshold': message['threshold']
-        })) is True:
-            return {'command': "ok", 'message': 'Request of threshold change sent'}
-        return {'command': "error", 'message': 'An error has occurred during the elaboration of the request'}
+        responses = list()
+        for docker in self._containers_data:
+            if docker['status'] != 'offline':
+                responses.append(self.change_threshold({'address': docker['address'], 'threshold': message['threshold']}))
+
+        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
 
     def change_threshold(self, message) -> dict:
         try:
@@ -675,13 +650,14 @@ class controller:
             self._logger.error("Error, the function requires an address and a threshold field")
             return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address and a threshold fields'}
         
-        self._logger.debug("Received request to set the threshold to " + message['threshold'] + " to " + message['address'])       
+        self._logger.debug("Received request to set the threshold to " + str(message['threshold']) + " to " + message['address'])       
         return self._rabbit.send_manager_unicast({
                 'command' : 'container_threshold',
                 'address' : message['address'],
                 'threshold' : message['threshold']
         }, message['address'])
-             
+          
+    """ TO ANTAGONIST """
     def add_antagonists(self, message):
         if self._rabbit.send_antagonist_multicast({
                 'command' : 'start_antagonist',
@@ -746,7 +722,10 @@ class controller:
                 'balance' : message['balance']
         }, message['address'])
     
-controller()
-while True:
-	pass    
+#control = controller()
+#try:
+ #   while True:
+  #      pass
+#except:
+ #   control.close_all()   
  
