@@ -418,13 +418,17 @@ class controller:
     
     """ stringifies a docker manager content to be showed to the user """
     def _generate_content(self, containers) -> str:
-        
+        content = ''
         if containers['status'] == 'offline':
-            return "Docker Manager: "+ containers['address'] + " Status: OFFLINE\n NO CONTENT AVAILABLE"
+            return "Docker Manager: "+ containers['address'] + " Status: OFFLINE"+os.linesep + "Content:  NO CONTENT AVAILABLE"
+        
+        for container_content in containers['content']:
+            content += '\t\t' + container_content + os.linesep
+            
         if containers['status'] == 'update_present':
-            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED\n Content: "+ json.dumps(containers['content'])
+            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED" + os.linesep + "Content: " + os.linesep + content
         if containers['status'] == 'updated':
-            return "Docker Manager: "+ containers['address'] + " Status: UPDATED\n Content: "+ json.dumps(containers['content'])
+            return "Docker Manager: "+ containers['address'] + " Status: UPDATED"+os.linesep+"Content: "+ os.linesep + content
         return ''
     
     """ gets the content for a specific docker manager container identified by its address and containerID """
@@ -580,11 +584,11 @@ class controller:
                     if docker['status'] == 'update_present':
                         docker_request.append(docker['address'])
             for docker in docker_request:
-                self._logger.debug("Found a pending update. Start synchronization for manager at " + docker['address'])
+                self._logger.debug("Found a pending update. Start synchronization for manager at " + docker)
                 result = self._rabbit.send_manager_unicast({
                             "command" : "give_content"
-                }, docker['address'])
-                self._set_container_content(docker['address'], result['content'])
+                }, docker)
+                self._set_container_content(docker, result['content'])
             time.sleep(self._aggregation_time)
         self._logger.debug("Closing pending manager thread")   
         

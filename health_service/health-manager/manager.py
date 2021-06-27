@@ -286,7 +286,7 @@ class docker_manager:
             return {'command': 'error', 'type': 'invalid_param', 'description': '[' + socket.gethostbyname(socket.gethostname()) +']Invalid threshold. Threshold must be between 0 and 1'}
         
     def get_containers_info(self, message):
-        return {'command': 'ok', 'address': self._manager_ip, 'content': self._monitor_log}
+        return {'command': 'ok', 'address': self._manager_ip, 'description': self._monitor_log}
         
 docker_manager()
 
