@@ -254,12 +254,25 @@ class rabbit_client:
                 response = {'command':'error', 'message':'command not found'}
         
         self._logger.debug("Sending the computed reply to " + sender)
-        self._send_channel.basic_publish(exchange='health_system_exchange',
+        try:
+            self._send_channel.basic_publish(exchange='health_system_exchange',
                      routing_key= sender,
                      properties=pika.BasicProperties(correlation_id = \
                                                          props.correlation_id),
                      body=json.dumps(response))
-        self._logger.debug("Computed reply sent")           
+            self._logger.debug("Computed reply sent")     
+        except:
+            self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
+            self._generate_channel()
+            try:
+                self._send_channel.basic_publish(exchange='health_system_exchange',
+                     routing_key= sender,
+                     properties=pika.BasicProperties(correlation_id = \
+                                                         props.correlation_id),
+                     body=json.dumps(response))
+                self._logger.debug("Computed reply sent")     
+            except:
+                self._logger.error("Unable to send the response. Undo operation")
 
     """ callback function called by the callback queue for the management of the incoming replies """
     def _on_response(self, ch, method, props, body):
@@ -314,7 +327,8 @@ class rabbit_client:
             self._logger.debug("Reply to request " + correlation_id + " received")    
             return self._get_result(correlation_id)
         
-        except:
+        except Exception as e:
+            self._logger.debug("ERROR: " + str(e))
             if reply is True:
                 self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
                 self._generate_channel()
@@ -371,7 +385,9 @@ class rabbit_client:
                 self._logger.warning("Temporary disconnection from the broker. Trying reconnection..")
                 self._generate_channel()
                 return self.send_manager_unicast(message, address, False)
-
+            
+        return {'command':'error', 'message':'destination unreachable', 'type':'unreachable'}
+    
     """ send a multicast message to the antagonists. To be used from the managers to 
         generate an asynchronous notification of updates to the controller 
         Parameters:

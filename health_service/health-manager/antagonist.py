@@ -1,4 +1,3 @@
-import docker
 import os
 import random
 import numpy
@@ -8,27 +7,33 @@ from time import sleep
 import logging
 import sys
 import coloredlogs
+import threading
+import socket
 
 class antagonist:
     
-    def __init__(self, manager):
+    def __init__(self, config, manager):
         self._logger = None
         
-        self._shut_down_rate = int()
-        self._pkt_loss_rate = int()
-        
-        self._freq_param = float()
-        self._duration_param = float()
-        self._system_active_flag = int()
-        self._docker_client = None
+        self._balance = 0.5
+        self._heavy_rate = 0.5
+        self._pkt_loss_rate = 20
+        self._freq_param = 10
+        self._duration_param = 5
         self._manager = manager
         self._exit = True
-        
+        self._attack = False
+        self._rabbit = None
+        self._configuration = config
+        self._interface = {
+                'start_antagonist' : self._enable_antagonist,
+                'stop_antagonist' : self._disable_antagonist,
+                'conf_antagonist' : self._conf_antagonist
+        }
         self._rng = default_rng()
         self._initialize_logger()
-        
-        if self._initialize_docker_client() is False:
-            return
+        self._init_rabbit()
+        self._logger.debug("Antagonist ready")
         
     """ configure the logger behaviour """
     def _initialize_logger(self):
@@ -45,61 +50,108 @@ class antagonist:
             self._logger.addHandler(handler)
             self._logger.setLevel(logging.DEBUG)   # logger threshold  
 
-    def _initialize_docker_client(self) -> bool:
-        try:
-            self._docker_client = docker.from_env()
-        except:
-            self._logger.error("Error during connection with the local docker")
-            return False
       
-    def container_shutdown_attack(self, target):
-
-        while not self._attack:
-            pass
-        self._logger.debug ("Shutdown attack in progress:",str(self._shut_down_rate),str(self._pkt_loss_rate), str(self._duration_param))
-
-        ignored_containers = self._manager._ignore_list
-        if target.short_id in ignored_containers:
-            return
+        """  initialize the rabbitMQ client to be used by the controller class """    
+    def _init_rabbit(self) -> bool:
+        
+        try:
+            self._logger.debug("Connecting to the rabbitMQ broker.." + self._configuration['address'])
+            # connect the client to the rabbitMQ broker 
+            self._logger.debug("Connecting to the rabbitMQ broker..")
+            self._rabbit = rabbit_client(self._configuration['address'],'antagonist',self._interface)
+            self._logger.debug("Correctly connected to the broker")
+            return True
+        
+        except KeyError:
+            self._logger.error('Error, address field not found')
             
-        while self._attack:   
-            value = random.uniform(0,1)
-            if (value < self._shut_down_rate) :
-                target.stop()
-            elif value < self._shut_down_rate + self._pkt_loss_rate:
-                # insert into thread
-                self._packet_loss_attack(self._manager._docker_env.inspect_container(target.short_id)['NetworkSettings']['Networks']['bridge']['IPAddress'])
+        return False 
+    
+    def _attack_containers(self, target):
+
+        self._logger.info("Thread " + str(threading.get_ident()) + " for " + target.short_id + " started")
+
+        while self._attack:
+            
+            ignored_containers = self._manager._ignore_list
+            if not target.short_id in ignored_containers:
+                if random.uniform(0,1)>self._heavy_rate:
+                    if random.uniform(0,1) < self._balance:
+                        self._logger.info("Shutdown container " + target.short_id)
+                        target.stop()
+                    else:
+                        self._logger.info("Packet loss attack on container " + target.short_id)
+                        self._exec_packet_loss_attack(self._manager._docker_env.inspect_container(target.short_id)['NetworkSettings']['Networks']['bridge']['IPAddress'])
             sleep(numpy.random.exponential(self._freq_param)) 
             
-    def set_packet_loss_attack(self):
+    def _set_packet_loss_attack(self):
         os.system("tc qdisc del dev docker0 parent 1:1")
         os.system("tc qdisc add dev docker0 root handle 1: prio priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
         os.system("tc qdisc add dev docker0 parent 1:1 handle 10: netem loss " + str(self._pkt_loss_rate)+"%")
+        os.system("tc qdisc add dev docker0 parent 1:2 handle 11: netem")
 
         
-    def exec_packet_loss_attack(self, address):
-        self._logger.debug("Packet loss attack on " + address + ". Packet loss: " + self._pkt_loss_rate + " Duration: " + self._duration_param)
-        os.system("tc filter add dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ address +" flowid 1:1")
+    def _exec_packet_loss_attack(self, target_address):
+        os.system("tc filter del dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:2")
+        os.system("tc filter add dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:1")
         sleep(abs(numpy.random.exponential(self._duration_param)))
-        os.system("tc filter add dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ address +" flowid 1:0")
-
-        #self._logger.debug ("Packet loss attack in progress:",str(self._shut_down_rate),str(self._pkt_loss_rate), str(self._duration_param))
-        #cmd = "tc qdisc change dev docker0 root netem loss "+str(self._pkt_loss_rate)+"%"
-        #os.system(cmd)
-        #while self._attack:
-        #    pass
-        #os.system("tc qdisc change dev docker0 root netem loss 0.00001%") # remove pkt drop
+        os.system("tc filter del dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:1")
+        os.system("tc filter add dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:2")
     
     def _enable_antagonist(self, message):
-        return {'command':'ok'}
+        self._logger.info("Start antagonist attack")
+        containers = self._manager._get_all_containers()
+        self._set_packet_loss_attack()
+        self._attack = True
+        numpy.random.seed(123)
+        ignore_list = self._manager._ignore_list
+        for container in containers:
+            if not container.short_id in ignore_list:
+                self._logger.debug("Launching attack thread for " + container.short_id)
+                threading.Thread(target=self._attack_containers, args=(container,)).start()
+                
+        return {'command':'ok','description': 'Antagonist started'}
     
     def _disable_antagonist(self, message):
-        return {'command':'ok'}
+        self._attack = False
+        self._logger.info("Antagonist attack stopped")
+        return {'command':'ok', 'description' : 'Antagonist stopped' }
     
     def _conf_antagonist(self, message):
-        return {'command':'ok'}
+        
+        if self._attack is True:
+            return {'command':'error','address':socket.gethostbyname(socket.gethostname()), 'description': 'Configuration locked during a test' }
+        
+        try:
+            self._balance = message['balance']
+            self._logger.debug("Balance param updated to " + self._balance)
+        except KeyError:
+            pass
+        
+        try:
+            self._heavy_rate = message['heavy']
+            self._logger.debug("Heavy param updated to " + self._heavy_rate)
+        except KeyError:
+            pass
+        
+        try:
+            self._freq_param = message['frequency']
+            self._logger.debug("Frequecy param updated to " + self._freq_param)
+        except KeyError:
+            pass
+
+        try:
+            self._duration_param = message['duration']
+            self._logger.debug("Duration param updated to " + self._duration_param)
+        except KeyError:
+            pass
+        
+        self._logger.info("Antagonist configuration changed")
+        return {'command':'ok', 'address':socket.gethostbyname(socket.gethostname()), 'description': 'Configuration updated' }
     
-    
+    def close(self):
+        self._logger.info("Closing the antagonist")
+        self._attack = False
      
 """    
 def start_antagonist():    

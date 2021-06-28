@@ -588,7 +588,10 @@ class controller:
                 result = self._rabbit.send_manager_unicast({
                             "command" : "give_content"
                 }, docker)
-                self._set_container_content(docker, result['content'])
+                try:
+                    self._set_container_content(docker, result['content'])
+                except:
+                    self._logger.warning("Empty updated. Undo operation")
             time.sleep(self._aggregation_time)
         self._logger.debug("Closing pending manager thread")   
         

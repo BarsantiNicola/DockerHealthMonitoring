@@ -25,22 +25,22 @@ class docker_manager:
         self._containers_env = None
         self._alive_time = 10
         self._container_time = 2
-        self._antagonist = antagonist(self)
+
         
         self._interface = {
                 'container_ignore': self.ignore_container, 
                 'container_add': self.add_container, 
                 'container_threshold': self.set_threshold, 
-                'give_content': self.get_containers_info,
-                'start_antagonist' : self._antagonist._enable_antagonist,
-                'stop_antagonist' : self._antagonist._disable_antagonist,
-                'conf_antagonist' : self._antagonist._conf_antagonist
+                'give_content': self.get_containers_info
         }
+        
         
         self._initialize_logger()
         if self._load_conf() is False:
             self._logger.error("Error during the configuration load")
             return
+        
+        self._antagonist = antagonist(self._configuration, self)
         
         if self._connect_docker() is False:
             self._logger.error("Error during the connection with the docker service")
@@ -286,7 +286,7 @@ class docker_manager:
             return {'command': 'error', 'type': 'invalid_param', 'description': '[' + socket.gethostbyname(socket.gethostname()) +']Invalid threshold. Threshold must be between 0 and 1'}
         
     def get_containers_info(self, message):
-        return {'command': 'ok', 'address': self._manager_ip, 'description': self._monitor_log}
+        return {'command': 'ok', 'address': self._manager_ip, 'content': self._monitor_log}
         
 docker_manager()
 
