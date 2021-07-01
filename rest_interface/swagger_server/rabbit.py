@@ -10,10 +10,77 @@ import coloredlogs
 import sys
 from datetime import datetime
 from datetime import timedelta
+import inspect
+import ctypes
 
-def test(message):
-    return message
+class ThreadWithExc(threading.Thread):
+    '''A thread class that supports raising exception in the thread from
+       another thread.
+    '''
+    def _get_my_tid(self):
+        """determines this (self's) thread id
+
+        CAREFUL : this function is executed in the context of the caller
+        thread, to get the identity of the thread represented by this
+        instance.
+        """
+        if not self.isAlive():
+            raise threading.ThreadError("the thread is not active")
+
+        # do we have it cached?
+        if hasattr(self, "_thread_id"):
+            return self._thread_id
+
+        # no, look for it in the _active dict
+        for tid, tobj in threading._active.items():
+            if tobj is self:
+                self._thread_id = tid
+                return tid
+
+        # TODO: in python 2.6, there's a simpler way to do : self.ident
+
+        raise AssertionError("could not determine the thread's id")
+
+    def _async_raise(self, tid, exctype):
+        '''Raises an exception in the threads with id tid'''
+        if not inspect.isclass(exctype):
+            raise TypeError("Only types can be raised (not instances)")
+        res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid),
+                                                     ctypes.py_object(exctype))
+        if res == 0:
+            raise ValueError("invalid thread id")
+        elif res != 1:
+            # "if it returns a number greater than one, you're in trouble,
+            # and you should call it again with exc=NULL to revert the effect"
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)    
+            raise SystemError("PyThreadState_SetAsyncExc failed")
     
+    def raiseExc(self, exctype):
+        """Raises the given exception type in the context of this thread.
+
+        If the thread is busy in a system call (time.sleep(),
+        socket.accept(), ...), the exception is simply ignored.
+
+        If you are sure that your exception should terminate the thread,
+        one way to ensure that it works is:
+
+            t = ThreadWithExc( ... )
+            ...
+            t.raiseExc( SomeException )
+            while t.isAlive():
+                time.sleep( 0.1 )
+                t.raiseExc( SomeException )
+
+        If the exception is to be caught by the thread, you need a way to
+        check that your thread has caught it.
+
+        CAREFUL : this function is executed in the context of the
+        caller thread, to raise an excpetion in the context of the
+        thread represented by this instance.
+        """
+        self._async_raise( self._get_my_tid(), exctype )     
+
+
 class rabbit_client:
 
     """ initialize the rabbit_client class
@@ -45,7 +112,8 @@ class rabbit_client:
         
         # type of receiver
         self._receiver_type = receiver_type
-        
+    
+        self._threads = list()
         # maximum waiting time for a reply
         if receiver_type == 'controller':
             self._waiting_time = timedelta(seconds=30)
@@ -86,6 +154,9 @@ class rabbit_client:
 
     def close_all(self):
         self._logger.debug("Closing all rabbitMQ message receivers thread")
+        for thread in self._threads:
+            thread.raiseExc(Exception)
+            
     # PRIVATE FUNCTIONS
 
     """ verification of an IPv4 address """
@@ -158,6 +229,21 @@ class rabbit_client:
         
     """ MESSAGE RECEIVAL MANAGEMENT """
 
+    def _start_callback(self):
+        try:
+            self._logger.debug("Starting the thread for callback queue management")
+            self._callback_channel.start_consuming()
+        except:
+            self._logger.warning("Closing the thread for callback queue management")
+            
+    
+    def _start_receive(self):
+        try:
+            self._logger.debug("Starting the thread for receive queue management")
+            self._receive_channel.start_consuming()
+        except:
+            self._logger.warning("Closing the thread for receive queue management")
+            
     """ allocate receiving queue and start them on threads """
     def _allocate_receiver(self) -> bool:
         
@@ -208,8 +294,15 @@ class rabbit_client:
             self._receive_channel.basic_consume(queue=queue_name, on_message_callback=self._message_callback, auto_ack=True)
             self._logger.debug("Queues correctly binded")
             self._logger.debug("Allocating thread and start message consuming")
-            threading.Thread(target=self._callback_channel.start_consuming, daemon=True).start()
-            threading.Thread(target=self._receive_channel.start_consuming, daemon=True).start()
+
+            thread = ThreadWithExc(target = self._start_callback)
+            thread.start()
+            self._threads.append(thread)
+            self._logger.debug("Started thread " + str(thread.ident))
+            thread = ThreadWithExc(target = self._start_receive)
+            thread.start()
+            self._threads.append(thread)
+            self._logger.debug("Started thread " + str(thread.ident))
             self._logger.debug("Receiving queues fully operational")
             return True
         
@@ -476,4 +569,6 @@ class rabbit_client:
         self._logger.error("Error. Unable to contact the broker. Connection down")
         return {'command':'error', 'message':'internal error', 'type':'internal_error'}
 
-        
+
+
+

@@ -124,124 +124,32 @@ class antagonist:
         
         try:
             self._balance = message['balance']
-            self._logger.debug("Balance param updated to " + self._balance)
+            self._logger.debug("Balance param updated to " + str(self._balance))
         except KeyError:
             pass
         
         try:
             self._heavy_rate = message['heavy']
-            self._logger.debug("Heavy param updated to " + self._heavy_rate)
+            self._logger.debug("Heavy param updated to " + str(self._heavy_rate))
         except KeyError:
             pass
         
         try:
             self._freq_param = message['frequency']
-            self._logger.debug("Frequecy param updated to " + self._freq_param)
+            self._logger.debug("Frequecy param updated to " + str(self._freq_param))
         except KeyError:
             pass
 
         try:
             self._duration_param = message['duration']
-            self._logger.debug("Duration param updated to " + self._duration_param)
+            self._logger.debug("Duration param updated to " + str(self._duration_param))
         except KeyError:
             pass
         
         self._logger.info("Antagonist configuration changed")
         return {'command':'ok', 'address':socket.gethostbyname(socket.gethostname()), 'description': 'Configuration updated' }
     
-    def close(self):
+    def close_all(self):
         self._logger.info("Closing the antagonist")
         self._attack = False
      
-"""    
-def start_antagonist():    
-    global shut_down_rate
-    global pkt_loss_rate
-    global system_active_flag
-    global freq_param
-    
-    #system_active_flag = 0
-    while(1):
-        if system_active_flag == 1 :
-            attack_interval = numpy.random.exponential(freq_param)
-            start_attack()
-            logger.debug("attack interval:",str(attack_interval),"s")
-            if attack_interval<200: 
-                sleep(attack_interval) # hold for next attack (max of 200 seconds)
-                
-        sleep(1) 
-    
-    
-def pause():
-    global system_active_flag
-    os.system("tc qdisc change dev docker0 root netem loss 0.00001%")
-    system_active_flag = 0
-    
-def test1():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test1 - LOW intensity and LOW frequency attack
-
-    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 2   # 2% of packets are dropped randomly
-    duration_param = 2  # set the duration of the attack
-    
-    freq_param = 15     # set the interval between the attacks
-    
-    system_active_flag = 1
-     
-def test2():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test2 - HIGH intensity and LOW frequency attack
-    
-    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 8   # 8% of packets are dropped randomly
-    duration_param = 3  # set the duration of the attack
-    
-    freq_param = 15      # set the interval between the attacks
-    
-    system_active_flag = 1
-    
-def test3():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test3 - HIGH intensity and HIGH frequency attack
-    
-    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 8   # 8% of packets are dropped randomly
-    duration_param = 3  # set the duration of the attack
-    
-    freq_param = 8      # set the interval between the attacks
-    
-    system_active_flag = 1
-    
-def test4():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test4 - LOW intensity and HIGH frequency attack
-
-    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 2   # 2% of packets are dropped randomly
-    duration_param = 2  # set the duration of the attack
-    
-    freq_param = 8     # set the interval between the attacks
-    
-    system_active_flag = 1
-
-comm_client = rabbit_client('172.17.0.2', 'antagonist',{'test1': test1,'test2': test2, 'test3': test3, 'test4': test4, 'pause': pause})
-os.system('tc qdisc add dev docker0 root netem loss 0.00001%')
-#test1()
-start_antagonist()"""

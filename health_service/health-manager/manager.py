@@ -18,14 +18,14 @@ class docker_manager:
         self._configuration = None
         self._ignore_list = list()
         self._restarted_list = list()
-        self._threshold = 80
+        self._threshold = 60
         self._monitor_log = list()
         self._manager_ip = socket.gethostbyname(socket.gethostname())
         self._docker_env = None
         self._containers_env = None
         self._alive_time = 10
         self._container_time = 2
-
+        self._exit = True
         
         self._interface = {
                 'container_ignore': self.ignore_container, 
@@ -89,7 +89,7 @@ class docker_manager:
             handler.setFormatter(formatter)
 
             self._logger.addHandler(handler)
-            self._logger.setLevel(logging.DEBUG)   # logger threshold  
+            self._logger.setLevel(logging.INFO)   # logger threshold  
             
 
     """  initialize the rabbitMQ client to be used by the controller class """    
@@ -213,7 +213,7 @@ class docker_manager:
 
     def _start_manager(self):
         n = 0
-        while True:
+        while self._exit:
             n+=1
             self._logger.debug("Starting new monitoration of containers monitoring: " + str(n))
             self._execute_monitor()
@@ -287,8 +287,17 @@ class docker_manager:
         
     def get_containers_info(self, message):
         return {'command': 'ok', 'address': self._manager_ip, 'content': self._monitor_log}
-        
-docker_manager()
+     
+    def close_all(self):
+        self._exit = False
+        self._antagonist.close_all()
+        self._rabbit.close_all()
+
+try:
+    manager = docker_manager()
+except:
+    manager.close_all()
+    
 
 
 

@@ -10,6 +10,9 @@ import time
 from datetime import datetime
 from datetime import timedelta
 import socket
+from time import sleep
+from pandas import DataFrame
+
 """
 
     Class to generate a controller for the docker health monitor service. The controller has the following duties:
@@ -33,6 +36,16 @@ class controller:
         self._logger = None          # class logger
         self._exit = True
         
+        # test variables
+        self._collect_data = False   # triggers the interface to collect data from the operations
+        self._availability = None    # dataframe for availability measurements
+        self._bandwidth = None       # dataframe for bandwidth measurements
+        self._data_lock = threading.Lock()  # lock for mutual exclusion of dataframes
+
+        self._len_aggregation_counter = 0  # counter for bandwidth measurements
+        self._counter_lock = threading.Lock()  # lock for mutual exclusion on len_aggregation_counter
+        
+        # interface shared with outside clients by rabbitMQ
         self._interface = {
            'live' : self._set_heartbeat,
            'update' : self._set_container_status_update_present,
@@ -55,7 +68,10 @@ class controller:
            'change_antagonists_config' : self.change_antagonists_config,
            'change_host_antagonist_config' : self.change_host_antagonist_config,
            'remove_antagonists' : self.remove_antagonists,
-           'remove_host_antagonist' : self.remove_host_antagonist  
+           'remove_host_antagonist' : self.remove_host_antagonist , 
+           
+           'uninstall': self._uninstall,
+           'test' : self._test
         }
         
         self._initialize_logger()
@@ -132,6 +148,8 @@ class controller:
     def close_all(self):
         self._exit = False
         self._rabbit.close_all()
+        
+    
     """ DOCKER MANAGERS MANAGEMENT """
             
     """ [ DATA STORING ] """
@@ -585,9 +603,13 @@ class controller:
                         docker_request.append(docker['address'])
             for docker in docker_request:
                 self._logger.debug("Found a pending update. Start synchronization for manager at " + docker)
+                with self._counter_lock:
+                    self._len_aggregation_counter +=45
                 result = self._rabbit.send_manager_unicast({
                             "command" : "give_content"
                 }, docker)
+                with self._counter_lock:
+                    self._len_aggregation_counter += len( json.dumps(result))
                 try:
                     self._set_container_content(docker, result['content'])
                 except:
@@ -642,6 +664,12 @@ class controller:
         }, message['address'])
             
     def change_all_threshold(self, message) -> dict:
+        try:
+            message['address']
+        except KeyError:
+            self._logger.error("Error, the function requires an address field")
+            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address'}
+        
         responses = list()
         for docker in self._containers_data:
             if docker['status'] != 'offline':
@@ -666,11 +694,12 @@ class controller:
           
     """ TO ANTAGONIST """
     def add_antagonists(self, message):
-        if self._rabbit.send_antagonist_multicast({
-                'command' : 'start_antagonist',
-        }) is True:
-            return {'command': 'ok', 'description': 'Request of starting the antagonist on ' + message['address'] + ' sent'}
-        return {'command': 'error', 'description': 'An error has occurred during the elaboration of the request'}
+        
+        responses = []
+        for docker in self._containers_data:
+            if docker['status'] != 'offline':
+                responses.append(self.add_host_antagonist({'address': docker['address']}))
+        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
     
     def add_host_antagonist(self, message):
         try:
@@ -685,12 +714,13 @@ class controller:
         }, message['address'])
             
     def remove_antagonists(self, message):
-        if self._rabbit.send_antagonist_multicast({
-                'command' : 'stop_antagonist',
-        }) is True:
-            return {'command': 'ok', 'description': 'Request of stopping the antagonists sent'}
-        return {'command': 'error', 'description': 'An error has occurred during the elaboration of the request'}
-    
+        responses = []
+        for docker in self._containers_data:
+            if docker['status'] != 'offline':
+                responses.append(self.remove_host_antagonist({'address': docker['address']}))
+        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+
+            
     def remove_host_antagonist(self, message):
         try:
             message['address']
@@ -705,30 +735,233 @@ class controller:
 
 
     def change_antagonists_config(self, message):
-        if self._rabbit.send_antagonist_multicast({
-                'command' : 'change_antagonist',
-                'heavy' : message['heavy'],
-                'balance' : message['balance']
-        }) is True:
-            return {'command': 'ok', 'description': 'Request of change the antagonists sent'}
-        return {'command': 'error', 'description': 'An error has occurred during the elaboration of the request'}
-        
+        try:
+            message['heavy'],
+            message['balance'],
+            message['loss'],
+            message['frequency']
+            message['duration']
+            
+        except KeyError:
+            self._logger.error("Error, the function requires an address field")
+            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address or heavy or balance'}
+ 
+        responses = []
+        for docker in self._containers_data:
+            if docker['status'] != 'offline':
+                responses.append(self.change_host_antagonist_config({
+                        'heavy' : message['heavy'],
+                        'balance' : message['balance'],
+                        'frequency' : message['frequency'],
+                        'loss' : message['loss'],
+                        'duration' : message['duration'],
+                        'address' : docker['address']
+                }))
+        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+
+                
     def change_host_antagonist_config(self, message):
         try:
             message['address'],
             message['heavy'],
             message['balance'],
+            message['loss'],
+            message['frequency']
+            message['duration']
+            
         except KeyError:
             self._logger.error("Error, the function requires an address field")
             return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address or heavy or balance'}
  
         return self._rabbit.send_antagonist_unicast({
-                'command' : 'change_antagonist',
-                'address' : message['address'],
-                'heavy' : message['heavy'],
-                'balance' : message['balance']
-        }, message['address'])
+                        'command' : 'conf_antagonist',
+                        'heavy' : message['heavy'],
+                        'balance' : message['balance'],
+                        'frequency' : message['frequency'],
+                        'loss' : message['loss'],
+                        'duration' : message['duration']
+                }, message['address'])
     
+    def _uninstall(self, message):
+        dockers = []
+        with self._docker_lock: # we need to garantee mutual exclusion 
+            for docker in self._dockers:
+                dockers.append(docker['address'])
+        
+        for docker in dockers:
+            self._logger.debug("Removing the docker manager at " + docker['address'])
+            self._remove_docker_manager({'address':docker['address']})
+        
+        self.close_all()
+        return { 'command' : 'ok', 'description' : 'All the service removed. Service down after this message' }
+
+    def _test( self, message ):
+        threading.Thread(target=self._start_test).start()
+        return {'command': 'ok', 'description' : 'Test started'}
+    
+    def _save_collected_data(self, destination):
+        self._test_data.to_csv(destination+'.csv')
+    
+    def test_availability(self):
+        while self._collect_data is False:
+            pass
+        
+        while self._collect_data is True:
+            update = False
+            with self._info_lock:
+                for docker in self._containers_data:
+                    if docker['status'] == 'update_present':
+                        update = True
+            if update is True:
+                self._availability.loc[datetime.now()] = [0]
+            else:
+                self._availability.loc[datetime.now()] = [1]
+            sleep(0.25)
+    
+    def test_bandwidth(self):
+        while self._collect_data is False:
+            pass
+        
+        while self._collect_data is True:
+            with self._counter_lock and self._data_lock:
+                self._bandwidth.loc[datetime.now()] = [self._len_aggregation_counter]
+                self._len_aggregation_counter = 0
+            sleep(1)
+                
+    def _start_test( self):
+        
+        if self._collect_data is True:
+            return
+
+        threading.Thread(target=self.test_availability).start()
+        threading.Thread(target=self.test_bandwidth).start()
+        tests = [ {    # low attack low frequency
+                  'name'      : 'test_low_low',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 70,
+                  'heavy'     : 25,
+                  'frequency' : 5,
+                  'duration'  : 1
+        },{    # low attack high frequency
+                  'name'      : 'test_low_high',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 70,
+                  'heavy'     : 25,
+                  'frequency' : 0.5,
+                  'duration'  : 1
+        },{    # medium attack medium frequency
+                  'name'      : 'test_med_med',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 60,
+                  'heavy'     : 70,
+                  'frequency' : 2.5,
+                  'duration'  : 2
+        },{    # heavy attack low frequency
+                  'name'      : 'test_high_low',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 80,
+                  'heavy'     : 95,
+                  'frequency' : 5,
+                  'duration'  : 1
+        },{    # heavy attack high frequency
+                  'name'      : 'test_high_high',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 70,
+                  'balance'   : 80,
+                  'heavy'     : 90,
+                  'frequency' : 0.5,
+                  'duration'  : 1
+        }]
+           
+        waiting_time = [0.1, 0.5, 1,5,10]
+        self.remove_antagonists({})
+        for test in tests: 
+            self._logger.debug("TEST: " + json.dumps(self.change_antagonists_config(test)))
+            self._logger.debug("TEST: " + json.dumps(self.add_antagonists({})))
+            self._collect_data = True
+            for waiting in waiting_time:
+                with self._data_lock:
+                    self._availability = DataFrame(columns=['availability'])
+                    self._bandwidth = DataFrame(columns=['size'])
+                self._aggregation_time = waiting
+                sleep(1800)
+                with self._data_lock:
+                    self._availability.to_csv('/home/nico/availability_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'.csv')
+                    self._bandwidth.to_csv('/home/nico/bandwidth_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'.csv')
+            self._logger.debug("TEST: " + json.dumps(self.remove_antagonists({})))
+        self._collect_data = False
+        
+"""    
+    
+def test1():
+    global shut_down_rate
+    global pkt_loss_rate
+    global freq_param
+    global duration_param
+    global system_active_flag
+    # test1 - LOW intensity and LOW frequency attack
+
+    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
+    pkt_loss_rate = 2   # 2% of packets are dropped randomly
+    duration_param = 2  # set the duration of the attack
+    
+    freq_param = 15     # set the interval between the attacks
+    
+    system_active_flag = 1
+     
+def test2():
+    global shut_down_rate
+    global pkt_loss_rate
+    global freq_param
+    global duration_param
+    global system_active_flag
+    # test2 - HIGH intensity and LOW frequency attack
+    
+    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
+    pkt_loss_rate = 8   # 8% of packets are dropped randomly
+    duration_param = 3  # set the duration of the attack
+    
+    freq_param = 15      # set the interval between the attacks
+    
+    system_active_flag = 1
+    
+def test3():
+    global shut_down_rate
+    global pkt_loss_rate
+    global freq_param
+    global duration_param
+    global system_active_flag
+    # test3 - HIGH intensity and HIGH frequency attack
+    
+    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
+    pkt_loss_rate = 8   # 8% of packets are dropped randomly
+    duration_param = 3  # set the duration of the attack
+    
+    freq_param = 8      # set the interval between the attacks
+    
+    system_active_flag = 1
+    
+def test4():
+    global shut_down_rate
+    global pkt_loss_rate
+    global freq_param
+    global duration_param
+    global system_active_flag
+    # test4 - LOW intensity and HIGH frequency attack
+
+    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
+    pkt_loss_rate = 2   # 2% of packets are dropped randomly
+    duration_param = 2  # set the duration of the attack
+    
+    freq_param = 8     # set the interval between the attacks
+    
+    system_active_flag = 1
+"""
+        
 #control = controller()
 #try:
  #   while True:
