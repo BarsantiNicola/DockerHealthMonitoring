@@ -25,7 +25,7 @@ from pandas import DataFrame
 class controller:
      
     def __init__(self):
-        self._aggregation_time = 30  # time interval for the pending updates elaboration
+        self._aggregation_time = 5  # time interval for the pending updates elaboration
         self._enable_test = False    # enable the collect of data for testing purpouse
         self._configuration = None   # configuration getted from the configuration file[contains rabbitMQ address]
         self._rabbit = None          # instance of rabbitMQ management class
@@ -38,8 +38,8 @@ class controller:
         
         # test variables
         self._collect_data = False   # triggers the interface to collect data from the operations
-        self._availability = None    # dataframe for availability measurements
-        self._bandwidth = None       # dataframe for bandwidth measurements
+        self._availability = DataFrame(columns=['availability'])    # dataframe for availability measurements
+        self._bandwidth = DataFrame(columns=['threshold'])      # dataframe for bandwidth measurements
         self._data_lock = threading.Lock()  # lock for mutual exclusion of dataframes
 
         self._len_aggregation_counter = 0  # counter for bandwidth measurements
@@ -54,7 +54,7 @@ class controller:
            'remove_host' : self._remove_docker_manager,
            
            'get_all_containers' : self._get_all_managers_containers_content,
-           'get_container' : self._get_manager_container_content,
+           'get_container' : self._get_container_content,
            'get_host_containers' : self._get_manager_containers_content,
            
            'add_container' : self.add_container,  
@@ -70,8 +70,7 @@ class controller:
            'remove_antagonists' : self.remove_antagonists,
            'remove_host_antagonist' : self.remove_host_antagonist , 
            
-           'uninstall': self._uninstall,
-           'test' : self._test
+           'uninstall': self._uninstall
         }
         
         self._initialize_logger()
@@ -104,13 +103,17 @@ class controller:
         # prevent to allocate more handlers into a previous used logger
         if not self._logger.hasHandlers():
             handler = logging.StreamHandler(sys.stdout)
+            file_handler = logging.FileHandler('/var/log/health_monitor_controller.log')
             formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
                                                  " %(levelname)s %(message)s",
                                                  "%Y-%m-%d %H:%M:%S")
             handler.setFormatter(formatter)
-
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
             self._logger.addHandler(handler)
-            self._logger.setLevel(logging.DEBUG)   # logger threshold
+            self._logger.addHandler(file_handler)
+            self._logger.setLevel(logging.DEBUG)
        
     """ load from the file system the configuration file which maintains the rabbitMQ location """    
     def _load_conf(self) -> bool:
@@ -277,12 +280,17 @@ class controller:
                     self._logger.debug("Starting transfer of needed data..")
                     # we have to manually generate the folder
                     sftp.mkdir('/root/health_manager')
-
+                    
                 except OSError:
                     self._logger.warning('Folder already present') # if the folder is already present. 
+                self._logger.debug("Folder created. Starting data transfer")
                 # inside the folder we put all the files present into the components subdirectory
                 for item in os.listdir('/root/health_service/health-manager'):
-                    sftp.put('/root/health_service/health-manager/'+item,'/root/health_manager/'+item)
+                    if not os.path.isdir(item):
+                        self._logger.debug("Starting transfer: /root/health_service/health-manager/"+item )
+                        sftp.put('/root/health_service/health-manager/'+item,'/root/health_manager/'+item)
+                        self._logger.debug("Transfered: /root/health_service/health-manager/"+item )
+
                 # the manager/antagonist will run as a service on the remove machine. We need to put its definition
                 sftp.put('../docker-health-monitor.service','/etc/systemd/system/docker-health-monitor.service')
                 self._logger.debug("Data completely transfered to the machine " + message['address'])
@@ -290,12 +298,14 @@ class controller:
                 self._logger.debug("Sftp channel closed")
                 self._logger.debug("Execution of final operation on the remove host..")
                 # the service definition must be set as executable
-                ssh.exec_command('apt-get install -y python3.7 pip')
+                ssh.exec_command('apt-get install -y python3.7 pip3')
                 ssh.exec_command('update-alternatives  --set python /usr/bin/python3.7')
-                ssh.exec_command('pip install --no-cache-dir -r /root/health_service/requirements.txt')
+                ssh.exec_command('pip3 install --no-cache-dir -r /root/health_manager/requirements.txt')
+                time.sleep(5)
                 ssh.exec_command('chmod 0777 /etc/systemd/system/docker-health-monitor.service')
                 ssh.exec_command('systemctl daemon-reload')
-                ssh.exec_command('service docker-health-monitor start')
+                ssh.exec_command('systemctl enable docker-health-monitor')
+                ssh.exec_command('systemctl start docker-health-monitor')
                 ssh.close()
                 self._logger.debug("Remote host configuration completed. Secure channel closed")
                 
@@ -350,10 +360,11 @@ class controller:
                 # generation of a secure ftp session for the data transfer
                 self._logger.debug("Manager service stopped")
 
-                ssh.exec_command('service docker-health-monitor stop')
                 ssh.exec_command('rm /etc/systemd/system/docker-health-monitor.service')
                 ssh.exec_command('rm -R /root/health_manager')
                 ssh.exec_command('systemctl daemon-reload')
+                ssh.exec_command('systemctl disable docker-health-monitor')
+                ssh.exec_command('systemctl stop docker-health-monitor')
                 ssh.close()
                 self._logger.debug("Data completely removed from the machine " + message['address'] + ". Secure channel closed")
                 self._remove_docker(message['address'])
@@ -435,7 +446,7 @@ class controller:
         return False  
     
     """ stringifies a docker manager content to be showed to the user """
-    def _generate_content(self, containers) -> str:
+    """   def _generate_content(self, containers) -> str:
         content = ''
         if containers['status'] == 'offline':
             return "Docker Manager: "+ containers['address'] + " Status: OFFLINE"+os.linesep + "Content:  NO CONTENT AVAILABLE"
@@ -444,10 +455,10 @@ class controller:
             content += '\t\t' + container_content + os.linesep
             
         if containers['status'] == 'update_present':
-            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED" + os.linesep + "Content: " + os.linesep + content
+            return "Docker Manager: "+ containers['address'] + " Status: NOT UPDATED" + os.linesep + "Content: " + json.dumps(content)
         if containers['status'] == 'updated':
-            return "Docker Manager: "+ containers['address'] + " Status: UPDATED"+os.linesep+"Content: "+ os.linesep + content
-        return ''
+            return "Docker Manager: "+ containers['address'] + " Status: UPDATED"+os.linesep+"Content: "+ os.linesep + json.dumps(content)
+        return ''"""
     
     """ gets the content for a specific docker manager container identified by its address and containerID """
     def _get_manager_container_content(self, message ) -> dict:
@@ -490,9 +501,21 @@ class controller:
             except KeyError:
                 self._logger.error("An error has occured. Missing mandatory fields")
                 return { 'command':'error', 'type': 'missing_par', 'description': 'Internal server error'}
-        
+                
+        with self._info_lock: # we need to garantee mutual exclusion
+            self._logger.debug( "Searching the content for manager " + message['address'])
+            dock = None
+            for docker in self._containers_data:
+                if docker['address'] == message['address']:
+                    self._logger.debug( "Container found")
+                    dock = docker.copy()
+                    
+        if dock is None: 
+            self._logger.warning("Manager not found. Not registered into the controller")
+            return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
+    
         self._logger.debug( "Information ready. Generating the result")
-        return {'command' : 'ok', 'description': self.generate_content(dock)}  # to be changed with container searching
+        return {'command' : 'ok', 'description': dock}  # to be changed with container searching
     
     """ gets the content for a specific docker manager identified by its address """
     def _get_manager_containers_content(self, message ) -> dict:
@@ -535,8 +558,71 @@ class controller:
                 return { 'command':'error', 'type': 'missing_par', 'description': 'Internal server error'}
         
         self._logger.debug( "Information ready. Generating the result")
-        return {'command' : 'ok', 'description': self._generate_content(dock)}
+        response = dock.copy()
+        response['last_alive'] = response['last_alive'].strftime("%m/%d/%Y %H:%M:%S")
+        return {'command' : 'ok', 'description': response}
+        """return {'command' : 'ok', 'description': self._generate_content(dock)}"""
     
+        """ gets the content for a specific container specified by an IP address and its container short ID """
+    def _get_container_content(self, message ) -> dict:
+        
+        try:
+            message['address']
+            message['containerID']
+        except KeyError:
+            self._logger.error("Error, the function requires an address and a containerID fields")
+            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address or containerID'}
+
+            
+        with self._info_lock: # we need to garantee mutual exclusion
+            self._logger.debug( "Searching the content for manager " + message['address'])
+            dock = None
+            for docker in self._containers_data:
+                if docker['address'] == message['address']:
+                    self._logger.debug( "Container found")
+                    dock = docker
+                    
+        if dock is None: 
+            self._logger.warning("Manager not found. Not registered into the controller")
+            return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
+                
+        if dock['status'] == 'update_present':
+            self._logger.debug( "Status of the manager: update_present. Sending a content request")
+            result = self._rabbit.send_manager_unicast({
+                    "command" : "give_content"
+            }, dock['address'])
+            
+            try:
+                if (result['command'] == 'error') and (result['type'] == 'unreachable'):
+                    self._logger.warning("Error, the manager isn't reachable")
+                    self._set_container_status_offline(message['address'])
+                else:
+                    self._logger.debug("Updating the information of manager."+message['address'])
+                    self._set_container_content(message['address'], result['content'])
+              
+            except KeyError:
+                self._logger.error("An error has occured. Missing mandatory fields")
+                return { 'command':'error', 'type': 'missing_par', 'description': 'Internal server error'}
+        
+        self._logger.debug( "Information ready. Generating the result")
+        
+        with self._info_lock: # we need to garantee mutual exclusion
+            self._logger.debug( "Searching the content for manager " + message['address'])
+            dock = None
+            for docker in self._containers_data:
+                if docker['address'] == message['address']:
+                    self._logger.debug( "Container found")
+                    dock = docker.copy()
+                
+        if dock is None: 
+            self._logger.warning("Manager not found. Not registered into the controller")
+            return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
+                            
+        try:
+            return {'command':'ok', 'description': dock['content'][message['containerID']]}
+        except KeyError:
+            return { 'command':'error', 'type': 'CONTAINER_NOT_PRESENT', 'description': 'Specified containerID not present'}
+        
     """ gets the content from all the docker managers """
     def _get_all_managers_containers_content(self, message) -> list:
 
@@ -567,8 +653,15 @@ class controller:
             
         self._logger.debug( "Starting aggregation of the results")
         # we generate an array with all the formatted responses
+        response = list()
         with self._info_lock:
-            return {'command' : 'ok', 'description': [self._generate_content(docker) for docker in self._containers_data]}
+            for container in self._containers_data:
+                val = container.copy()
+                val['last_alive']  = container['last_alive'].strftime("%m/%d/%Y %H:%M:%S")
+                response.append(val)
+        
+        return {'command': 'ok','description': response}
+        """return {'command' : 'ok', 'description': [self._generate_content(docker) for docker in self._containers_data]}"""
 
     """ sets the last received heartbeat for the manager activity management """
     def _set_heartbeat(self, message) -> bool:
@@ -665,7 +758,7 @@ class controller:
             
     def change_all_threshold(self, message) -> dict:
         try:
-            message['address']
+            message['threshold']
         except KeyError:
             self._logger.error("Error, the function requires an address field")
             return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address'}
@@ -675,7 +768,7 @@ class controller:
             if docker['status'] != 'offline':
                 responses.append(self.change_threshold({'address': docker['address'], 'threshold': message['threshold']}))
 
-        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
 
     def change_threshold(self, message) -> dict:
         try:
@@ -699,7 +792,7 @@ class controller:
         for docker in self._containers_data:
             if docker['status'] != 'offline':
                 responses.append(self.add_host_antagonist({'address': docker['address']}))
-        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
     
     def add_host_antagonist(self, message):
         try:
@@ -718,7 +811,7 @@ class controller:
         for docker in self._containers_data:
             if docker['status'] != 'offline':
                 responses.append(self.remove_host_antagonist({'address': docker['address']}))
-        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
 
             
     def remove_host_antagonist(self, message):
@@ -757,7 +850,7 @@ class controller:
                         'duration' : message['duration'],
                         'address' : docker['address']
                 }))
-        return {'command': "ok", 'message': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
 
                 
     def change_host_antagonist_config(self, message):
@@ -841,131 +934,56 @@ class controller:
                   'loss'      : 80,
                   'balance'   : 70,
                   'heavy'     : 25,
-                  'frequency' : 5,
-                  'duration'  : 1
+                  'frequency' : 1,
+                  'duration'  : 5
         },{    # low attack high frequency
                   'name'      : 'test_low_high',
                   'command'   : 'conf_antagonist',
                   'loss'      : 80,
                   'balance'   : 70,
                   'heavy'     : 25,
-                  'frequency' : 0.5,
-                  'duration'  : 1
-        },{    # medium attack medium frequency
-                  'name'      : 'test_med_med',
-                  'command'   : 'conf_antagonist',
-                  'loss'      : 80,
-                  'balance'   : 60,
-                  'heavy'     : 70,
-                  'frequency' : 2.5,
-                  'duration'  : 2
+                  'frequency' : 0.1,
+                  'duration'  : 5
         },{    # heavy attack low frequency
                   'name'      : 'test_high_low',
                   'command'   : 'conf_antagonist',
                   'loss'      : 80,
-                  'balance'   : 80,
-                  'heavy'     : 95,
-                  'frequency' : 5,
-                  'duration'  : 1
+                  'balance'   : 70,
+                  'heavy'     : 90,
+                  'frequency' : 1,
+                  'duration'  : 20
         },{    # heavy attack high frequency
                   'name'      : 'test_high_high',
                   'command'   : 'conf_antagonist',
-                  'loss'      : 70,
-                  'balance'   : 80,
+                  'loss'      : 80,
+                  'balance'   : 70,
                   'heavy'     : 90,
-                  'frequency' : 0.5,
-                  'duration'  : 1
+                  'frequency' : 0.1,
+                  'duration'  : 20
         }]
            
-        waiting_time = [0.1, 0.5, 1,5,10]
-        self.remove_antagonists({})
+        waiting_time = [0.1,1,2.5]
+        self._logger.debug("TEST: " + json.dumps(self.add_antagonists({})))
+        sleep(5)
         for test in tests: 
             self._logger.debug("TEST: " + json.dumps(self.change_antagonists_config(test)))
-            self._logger.debug("TEST: " + json.dumps(self.add_antagonists({})))
             self._collect_data = True
             for waiting in waiting_time:
-                with self._data_lock:
-                    self._availability = DataFrame(columns=['availability'])
-                    self._bandwidth = DataFrame(columns=['size'])
                 self._aggregation_time = waiting
-                sleep(1800)
-                with self._data_lock:
-                    self._availability.to_csv('/home/nico/availability_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'.csv')
-                    self._bandwidth.to_csv('/home/nico/bandwidth_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'.csv')
-            self._logger.debug("TEST: " + json.dumps(self.remove_antagonists({})))
+                for a in range(0,1):
+                    with self._data_lock:
+                        self._availability = DataFrame(columns=['availability'])
+                        self._bandwidth = DataFrame(columns=['size'])
+                    sleep(300)
+                    with self._data_lock:
+                        self._availability.to_csv('/root/data/availability/availability_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'_'+str(a)+'.csv')
+                        self._bandwidth.to_csv('/root/data/bandwidth_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'_'+str(a)+'.csv')
+        self._logger.debug("TEST: " + json.dumps(self.remove_antagonists({})))
         self._collect_data = False
-        
-"""    
-    
-def test1():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test1 - LOW intensity and LOW frequency attack
-
-    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 2   # 2% of packets are dropped randomly
-    duration_param = 2  # set the duration of the attack
-    
-    freq_param = 15     # set the interval between the attacks
-    
-    system_active_flag = 1
-     
-def test2():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test2 - HIGH intensity and LOW frequency attack
-    
-    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 8   # 8% of packets are dropped randomly
-    duration_param = 3  # set the duration of the attack
-    
-    freq_param = 15      # set the interval between the attacks
-    
-    system_active_flag = 1
-    
-def test3():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test3 - HIGH intensity and HIGH frequency attack
-    
-    shut_down_rate = 12 # 25% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 8   # 8% of packets are dropped randomly
-    duration_param = 3  # set the duration of the attack
-    
-    freq_param = 8      # set the interval between the attacks
-    
-    system_active_flag = 1
-    
-def test4():
-    global shut_down_rate
-    global pkt_loss_rate
-    global freq_param
-    global duration_param
-    global system_active_flag
-    # test4 - LOW intensity and HIGH frequency attack
-
-    shut_down_rate = 15 # 4,8% probability of the target container is shut down (by the normal distribution)
-    pkt_loss_rate = 2   # 2% of packets are dropped randomly
-    duration_param = 2  # set the duration of the attack
-    
-    freq_param = 8     # set the interval between the attacks
-    
-    system_active_flag = 1
-"""
-        
-#control = controller()
-#try:
- #   while True:
-  #      pass
-#except:
- #   control.close_all()   
- 
+                
+control = controller()
+try:
+    while True:
+        pass
+except KeyboardInterrupt:
+    control.close_all()

@@ -3,11 +3,9 @@ Description=<project description>
 
 [Service]
 User=root
-WorkingDirectory=/root/health_service/health-controller
-ExecStart=/bin/bash -c 'python3 docker_controller.py'
+WorkingDirectory=/root/health_service/health_interface
+ExecStart=/bin/bash -c 'python3 -m swagger_server'
 Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
-
-

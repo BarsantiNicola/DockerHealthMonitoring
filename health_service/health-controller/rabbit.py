@@ -144,13 +144,17 @@ class rabbit_client:
         # prevent to allocate more handlers into a previous used logger
         if not self._logger.hasHandlers():
             handler = logging.StreamHandler(sys.stdout)
+            file_handler = logging.FileHandler('/var/log/rabbit_'+self._receiver_type+'_rabbit.log')
             formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
                                                  " %(levelname)s %(message)s",
                                                  "%Y-%m-%d %H:%M:%S")
             handler.setFormatter(formatter)
-
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
             self._logger.addHandler(handler)
-            self._logger.setLevel(logging.DEBUG)   # logger threshold  
+            self._logger.addHandler(file_handler)
+            self._logger.setLevel(logging.DEBUG)
 
     def close_all(self):
         self._logger.debug("Closing all rabbitMQ message receivers thread")
@@ -184,7 +188,8 @@ class rabbit_client:
             parameters = pika.ConnectionParameters(self._address,
                                        5672,
                                        '/',
-                                       credentials)
+                                       credentials,
+                                       heartbeat=60)
             self._send_connection = pika.BlockingConnection(parameters)
             self._callback_connection = pika.BlockingConnection(parameters)
             self._receive_connection = pika.BlockingConnection(parameters)
@@ -234,15 +239,14 @@ class rabbit_client:
             self._logger.debug("Starting the thread for callback queue management")
             self._callback_channel.start_consuming()
         except:
-            self._logger.warning("Closing the thread for callback queue management")
-            
+            self._logger.warning("Closing the thread for callback queue management")    
     
     def _start_receive(self):
-        try:
+       # try:
             self._logger.debug("Starting the thread for receive queue management")
             self._receive_channel.start_consuming()
-        except:
-            self._logger.warning("Closing the thread for receive queue management")
+       # except:
+       #     self._logger.warning("Closing the thread for receive queue management")
             
     """ allocate receiving queue and start them on threads """
     def _allocate_receiver(self) -> bool:
@@ -264,29 +268,38 @@ class rabbit_client:
             callback_queue = result2.method.queue
             self._logger.debug("Queues correctly instantiated")
             self._logger.debug("Executing queues binding to the exchange")
-            self._receive_channel.queue_bind(exchange='health_system_exchange',
+            if self._receiver_type == 'interface':
+                self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
                                             routing_key=self._receiver_type,
                                                 arguments={'x-message-ttl' : 0})
-
-            if self._receiver_type == 'interface':
-                self._receive_channel.queue_bind(exchange='health_system_exchange',queue=queue_name,routing_key=self._receiver_type + '.' + self._address,arguments={'x-message-ttl' : 0})
+ 
+                self._receive_channel.queue_bind(exchange='health_system_exchange',
+                                            queue=queue_name,
+                                            routing_key=self._receiver_type + '.' + self._address,
+                                                arguments={'x-message-ttl' : 0})
             
                 self._callback_channel.queue_bind( exchange='health_system_exchange',
-                                               queue=callback_queue,
-                                               routing_key=self._receiver_type+'.callback.'+ self._address,
-                                                   arguments={'x-message-ttl' : 0})
+                                            queue=callback_queue,
+                                            routing_key=self._receiver_type+'.callback.'+ self._address,
+                                               arguments={'x-message-ttl' : 0})
                 self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+self._address + " : callback." + self._receiver_type + "." + self._address)
 
-            else:    
+
+            else:
+                self._receive_channel.queue_bind(exchange='health_system_exchange',
+                                            queue=queue_name,
+                                            routing_key=self._receiver_type,
+                                                arguments={'x-message-ttl' : 0})
+ 
                 self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
                                             routing_key=self._receiver_type + '.' + socket.gethostbyname(socket.gethostname()),
                                                 arguments={'x-message-ttl' : 0})
             
                 self._callback_channel.queue_bind( exchange='health_system_exchange',
-                                               queue=callback_queue,
-                                               routing_key=self._receiver_type+'.callback.'+ socket.gethostbyname(socket.gethostname()),
+                                            queue=callback_queue,
+                                            routing_key=self._receiver_type+'.callback.'+ socket.gethostbyname(socket.gethostname()),
                                                arguments={'x-message-ttl' : 0})
                 self._logger.debug("Allocated channels: " + self._receiver_type + " : " + self._receiver_type+"."+socket.gethostbyname(socket.gethostname()) + " : callback." + self._receiver_type + "." + socket.gethostbyname(socket.gethostname()))
 
@@ -347,6 +360,7 @@ class rabbit_client:
                 response = {'command':'error', 'message':'command not found'}
         
         self._logger.debug("Sending the computed reply to " + sender)
+        self._logger.debug("Reply: " + json.dumps(response))
         try:
             self._send_channel.basic_publish(exchange='health_system_exchange',
                      routing_key= sender,

@@ -12,50 +12,106 @@ from antagonist import antagonist
 
 class docker_manager:
     
-
     def __init__(self):
-        self._logger = None
-        self._configuration = None
-        self._ignore_list = list()
-        self._restarted_list = list()
-        self._threshold = 60
-        self._monitor_log = list()
-        self._manager_ip = socket.gethostbyname(socket.gethostname())
-        self._docker_env = None
-        self._containers_env = None
-        self._alive_time = 10
-        self._container_time = 2
-        self._exit = True
         
+        self._logger = None            # logger for class output
+        self._configuration = None     # data obtained from configuration file
+        self._docker_env = None        # client for docker interaction
+        self._containers_env = None    # client for docker interaction
+        self._alive_time = 10          # seconds between two heartbeat update message
+        self._container_time = 0.2     # seconds between two containers monitor operations
+        self._exit = True              # used to close all the threads used by the application
+        self._manager_ip = socket.gethostbyname(socket.gethostname())   # ip address of the local machine
+        
+        self._ignore_list = list()               # list of ignored containers
+        self._ignore_lock = threading.Lock()     # semaphore for mutual exclusion on ignore_list
+        
+        self._restarted_list = list()            # list of containers under restart(to prevent chains of restart)
+        self._restart_lock = threading.Lock()    # semaphore for mutual exclusion on restart_list
+        
+        self._threshold = 60                     # packet loss threshold
+        self._threshold_lock = threading.Lock()  # semaphore for mutual exclusion on threshold
+        
+        self._monitor_log = list()               # last obtained description of all the local containers
+        self._monitor_lock = threading.Lock()    # semaphore for mutual exclusion on monitor_log
+        
+        # exposed interface for rabbitMQ modules interaction
         self._interface = {
-                'container_ignore': self.ignore_container, 
-                'container_add': self.add_container, 
-                'container_threshold': self.set_threshold, 
-                'give_content': self.get_containers_info
+                'container_ignore': self.ignore_container,     # removes a container from the service management
+                'container_add': self.add_container,           # add a container previously ignored to the service management
+                'container_threshold': self.set_threshold,     # change the threshold used by the manager
+                'give_content': self.get_containers_info       # give back the monitor_log
         }
         
         
-        self._initialize_logger()
+        self._initialize_logger()   # inittialization of the logger
+        
+        # loading of the configuration from the file system
         if self._load_conf() is False:
             self._logger.error("Error during the configuration load")
-            return
         
-        self._antagonist = antagonist(self._configuration, self)
+        # loading the ignored_list
+        self._load_ignored()
+        self._load_threshold()
         
+        # connecting to the docker environment
         if self._connect_docker() is False:
             self._logger.error("Error during the connection with the docker service")
             return
         
+        # initialization of the rabbitMQ clients
         if self._init_rabbit() is False:
             self._logger.error("Error during the connection with the rabbit broker")
             return
+        
+        # starting thread for container monitor
         threading.Thread(target=self._start_manager).start()
+        
+        # starting a thread for heartbeat
         threading.Thread(target=self._heartbeat).start()
         
         self._logger.debug("Health Monitoring System ON")
-
+        
+        # each manager contains a temporary class for testing the system
+        self._antagonist = antagonist(self._configuration, self)
         
     """ UTILITY FUNCTIONS """
+        
+    """ configure the logger behaviour """
+    def _initialize_logger(self):
+        self._logger = logging.getLogger(__name__)
+        
+        # prevent to allocate more handlers into a previous used logger
+        if not self._logger.hasHandlers():
+            handler = logging.StreamHandler(sys.stdout)
+            file_handler = logging.FileHandler('/var/log/health_monitor_manager.log')
+            formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
+                                                 " %(levelname)s %(message)s",
+                                                 "%Y-%m-%d %H:%M:%S")
+            handler.setFormatter(formatter)
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
+            self._logger.addHandler(handler)
+            self._logger.addHandler(file_handler)
+            self._logger.setLevel(logging.DEBUG)
+            
+
+    """  initialize the rabbitMQ client to be used by the controller class """    
+    def _init_rabbit(self) -> bool:
+        
+        try:
+            # connect the client to the rabbitMQ broker 
+            self._logger.debug("Connecting to the rabbitMQ broker..")
+            self._rabbit = rabbit_client(self._configuration['address'],'manager',self._interface)
+            self._logger.debug("Correctly connected to the broker")
+            return True
+        
+        except KeyError:
+            self._logger.error('Error, address field not found')
+            
+        return False 
+
     
     """ load from the file system the configuration file which maintains the rabbitMQ location """    
     def _load_conf(self) -> bool:
@@ -76,149 +132,255 @@ class docker_manager:
             self._logger.error("Error, configuration file not found")
             return False
         
-    """ configure the logger behaviour """
-    def _initialize_logger(self):
-        self._logger = logging.getLogger(__name__)
+    def _save_ignored(self):
+        self._logger.debug("Saving service updates... ")        
+        with open('ignored','wb') as writer:
+            try:
+                # the data is stored as an array of json objects each containing data about a docker manager
+                writer.write(bytes(json.dumps(self._ignored_list),'utf-8'))
+                self._logger.debug('Updates correctly saved')
+                return True
+            
+            except ValueError:
+                self._logger.error("Error while saving the data. Invalid data structure")
+                return False 
     
-        # prevent to allocate more handlers into a previous used logger
-        if not self._logger.hasHandlers():
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
-                                                 " %(levelname)s %(message)s",
-                                                 "%Y-%m-%d %H:%M:%S")
-            handler.setFormatter(formatter)
-
-            self._logger.addHandler(handler)
-            self._logger.setLevel(logging.INFO)   # logger threshold  
-            
-
-    """  initialize the rabbitMQ client to be used by the controller class """    
-    def _init_rabbit(self) -> bool:
+    """ load from the file system the configuration file which maintains the rabbitMQ location """    
+    def _load_ignored(self) -> bool:
         
+        self._logger.debug("Starting loading of the ignored list")
         try:
-            # connect the client to the rabbitMQ broker 
-            self._logger.debug("Connecting to the rabbitMQ broker..")
-            self._rabbit = rabbit_client(self._configuration['address'],'manager',self._interface)
-            self._logger.debug("Correctly connected to the broker")
-            return True
-        
-        except KeyError:
-            self._logger.error('Error, address field not found')
+            # file is putted inside the same folder of the script
+            with open('ignored','rb') as reader:
+                # the content is organized as a json file
+                self._ignored_list = json.load(reader)
+                self._logger.debug("Configuration correctly loaded")
+                return True
             
-        return False 
-
+        except ValueError:
+            self._logger.warning("Error, invalid ignored list file. Use empty list")
+            self._ignored_list = list()
+            return False
+        except FileNotFoundError:
+            self._logger.warning("Error, ignored list file not found. Use empty list")
+            self._ignored_list = list()
+            return False
+        
+    def _save_threshold(self):
+        self._logger.debug("Saving service updates... ")        
+        with open('threshold','wb') as writer:
+            try:
+                # the data is stored as an array of json objects each containing data about a docker manager
+                writer.write(bytes(json.dumps(self._threshold),'utf-8'))
+                self._logger.debug('Updates correctly saved')
+                return True
+            
+            except ValueError:
+                self._logger.error("Error while saving the data. Invalid data structure")
+                return False 
+        """ load from the file system the configuration file which maintains the rabbitMQ location """ 
+        
+    def _load_threshold(self) -> bool:
+        
+        self._logger.debug("Starting loading of the ignored list")
+        try:
+            # file is putted inside the same folder of the script
+            with open('threshold','rb') as reader:
+                # the content is organized as a json file
+                self._threshold = json.load(reader)
+                self._logger.debug("Configuration correctly loaded")
+                return True
+            
+        except ValueError:
+            self._logger.warning("Error, invalid threshold file. Using default 60")
+            return False
+        except FileNotFoundError:
+            self._logger.warning("Error, threshold file not found. Using default 60")
+            return False   
+        
     """ creates a connection to the local docker host to manage the containers """
     def _connect_docker(self) -> bool:
-       # try:
+       try:
             self._docker_env = docker.APIClient(base_url='unix://var/run/docker.sock')
             self._containers_env = docker.from_env() # get Docker Host information
             self._logger.debug("Connected to the local docker service")
             return True
-        #except:
-         #   self._logger.debug("Unable to connect to the docker service")
-          #  return False
+       except:
+            self._logger.debug("Unable to connect to the docker service")
+            return False
     
+    """ MUTUAL EXCLUSION DATA MANAGEMENT """
+    
+    """ we have three variables into the manager that could be accessed cuncurrently by different threads and
+        requires mutual exclusion """
+        
+    """ verifies if a container is excluded from the service management """
+    def _is_ignored(self, containerID) -> bool:
+        with self._ignore_lock:
+            return containerID in self._ignore_list
+        
+    """ excludes a container from the service management """       
+    def _add_ignored(self, containerID):
+        with self._ignore_lock:
+            self._ignored_list.append(containerID)
+            self._save_ignored()
+    
+    """ removes a container from the excluded by the service management """
+    def _remove_ignored(self, containerID):
+        with self._ignore_lock:
+            self._ignored_list.remove(containerID)
+            self._save_ignored()
+            
+    """ verifies if a container is previusly restarted from the service management.
+        This is to prevent that a service try to start an offline container that is currently under restarting"""       
+    def _is_restarted(self, containerID) -> bool:
+        with self._restart_lock:
+            return containerID in self._restarted_list
+        
+    """ sets a container in restarting mode(prevents actions on the container)"""    
+    def _add_restarted(self, containerID):
+        with self._restart_lock:
+            self._restarted_list.append(containerID)
+    
+    """ undo the restart operation by resetting the container into the normal mode""" 
+    def _remove_restarted(self, containerID):
+        with self._restart_lock:
+            self._restarted_list.remove(containerID)
+    
+    """ gives back the threshold used by the manager respecting the mutual exclusion on the variable """
+    def _get_threshold(self):
+        with self._threshold_lock:
+            return self._threshold
+    
+    """ changes the threshold used by the manager respecting the mutual exclusion on the variable """
+    def _change_threshold(self, threshold):
+        with self._threshold_lock:
+            self._threshold = threshold
+            self._save_threshold()
+            
     """ DOCKER MANAGEMENT """
     
+    """ returns the containers present into the local docker host"""
     def _get_all_containers(self) -> list:
         return self._containers_env.containers.list(all=True)
     
-    def _execute_monitor(self):
 
+    """ Periodic containers analysis """
+    def _execute_monitor(self):
+        
+        # get all containers
         containers = self._get_all_containers()
-        current_log = [] # start a new log
+        current_log = {} # start a new log
+        container_desc = {}
         update = False # clear update flag
-        for container in containers: # list all deployed containers  
-            if not container.short_id in self._ignore_list: # check containers that are NOT on the ignored list
-                if  container.status == "running" :
-                    
-                    if container.short_id in self._restarted_list:  # a restarted container is now running
-                        self._restarted_list.remove(container.short_id)
-                        update = True
+        
+        self._logger.debug("Starting analysis of the local docker host containers status""")
+        # scroll all the present containers
+        for container in containers:
+            
+            if not self._is_ignored(container.short_id): # checks only the containers that are NOT on the ignored list
+                
+                if container.status == "running" :  # container is RUNNING
+                    # a restarted container is now running so we can remove from the restarted_list 
+                    if self._is_restarted(container.short_id):  
+                        self._logger.debug("Container " + str(container.short_id) + " change state from update to running")
+                        self._remove_restarted(container.short_id)
+                        update = True    # a change into the containers status has occurred
                         
                     try:
+                        # getting the ip address of the container
                         ip_ctr = self._docker_env.inspect_container(container.short_id)['NetworkSettings']['Networks']['bridge']['IPAddress'] # get container IP    
+                        self._logger.debug("Evaluating packet loss for container " + str(container.short_id))
+                        
+                        # evaluating the packet loss
                         host = ping(ip_ctr, count=20, interval=0.01, timeout=0.1) # ping the container
-                        container_desc = "<"+container.short_id+"> <"+str(container.image)+"> RUNNING"+" ["+ip_ctr + "]"+" [Pkt Loss ="+str(100*(host.packet_loss))+"%] "
-                        if host.packet_loss < self._threshold: # check Packet Loss
-                            container_desc += "[HMS: ACTIVE]" 
+                        self._logger.debug("Measured packet loss for container " + str(container.short_id)+": " +str(100*(host.packet_loss))+'%')
+                        
+                        # generation of the description file
+                        container_desc = {
+                                'address': ip_ctr, 
+                                'packet_loss': str(100*(host.packet_loss))+'%', 
+                                'container_state':'running',
+                                'service_state':'enable'
+                        }
+                        
+                        # 
+                        if host.packet_loss > self._get_threshold()/100: # if packet loss exceeds the threshold we restart the container
                             
-                        else : # Exceeded threshold value
+                            self._logger.info("Container " + str(container.short_id) + " packet loss too high. Restart executed")
                             try:
-                                container.restart()    
-                                update = True
-                                self._restarted_list.append(container.short_id)
-                                container_desc += "[Threshold Exceeded] [HMS: RESTART]"
+                                container_desc['details'] = 'Packet loss threshold exceeded, container restarted'
+                                if self._add_restarted(container.short_id) is True:
+                                    container.restart() 
+                                    update = True
+                                    container_desc['container_state'] ='restart'
+                                else: 
+                                    self._loggin.warning("Container " + str(container.short_id) + " already restarted. Abort operation")
+                                    container_desc['container_state'] ='offline'
+                                    container_desc['details'] = 'Container offline. Trying to restart it'
                             except:
                                 self._loggin.warning("Error during the restart of "+ container.short_id)
-                                container_desc += "[Threshold Exceeded] [HMS: OFFLINE]"
-                    except KeyError:
-                        
-                        try:
-                            container.restart()    
-                            update = True
-                            self._restarted_list.append(container.short_id)
-                            container_desc = "<"+container.short_id+"> <"+str(container.image)+"> RUNNING"+" [Network error] [HMS: RESTART]"
-                        except:
-                            self._loggin.warning("Error during the restart of "+ container.short_id)
-                            container_desc = "<"+container.short_id+"> <"+str(container.image)+"> RUNNING"+" [Network error] [HMS: OFFLINE]"
-                
+                                container_desc['container_state'] ='offline'
+                                container_desc['details'] = 'Container offline. Trying to restart it'
+                                
+                    except KeyError:           
+                            container_desc = {'address': 'unknown', 'packet_loss': 'unknown', 'container_state':'running', 'service_state':'enable', 'details': 'Network error occurred during the management'}                
                 # container was shut down but not for a restart        
                 elif container.status == "exited": 
-                    container_desc = "<"+container.short_id+"> <"+str(container.image)+"> EXITED"+" [HMS: RESTART]"
-                    if not container.short_id in self._restarted_list:
+                    container_desc = {'container_state':'exited', 'service_state':'enable', 'details': 'Container offline. Trying to restart it'}                
+                    if not self._is_restarted(container.short_id):
                         try:
                             container.restart()    
                             update = True
-                            self._restarted_list.append(container.short_id)
+                            self._add_restarted(container.short_id)
                         except:
                             self._logger.warning("Error during the restart of "+ container.short_id)
                             
             else:       
                 self._logger.debug("Container ignored")
-                container_desc = "<"+container.short_id+"> <"+str(container.image)+">"+" [HMS: IGNORED]"
+                container_desc = { 'container_state':'disabled','details': 'Container not managed by the service'}     
 
-            current_log.append(container_desc) # add the container description to the log
+            current_log[container.short_id] = container_desc # add the container description to the log
         
         self._logger.debug("Verification of pending updates..")
+        
         # if something is done on the containers
-        if update == True:
+        if update is True:
             self._logger.debug("Pending updates found. Advertising the controller")
-            self._monitor_log = current_log
+            with self._monitor_lock:
+                self._monitor_log = current_log
             self._rabbit.send_controller_async(alive=False)  # send an update to the controller
             return
         
-        self._logger.debug("Verification of changes into the container list")
-        # if the previous container description is different(more/less containers, a restart to run container)
+        with self._monitor_lock:
+            prev_log = self._monitor_log
+            
+        # verification that the previous container description is different(more/less containers) 
         
-        if len(self._monitor_log) != len(current_log):
-            self._monitor_log = current_log
+        if len(prev_log) != len(current_log):
+            self._logger.debug("Pending updates found. Advertising the controller")
+            with self._monitor_lock:
+                self._monitor_log = current_log
             self._rabbit.send_controller_async(alive=False) # send an update to the controller
             return
         
-        for prev_container in self._monitor_log:
-            internal_update = False
-            for curr_container in current_log:
-                if curr_container == prev_container:
-                    self._logger.debug("Container match. Not to be updated" )
-                    internal_update = True
-                    pass
-            if internal_update is False:
-                self._logger.debug("Updates into the container status present")
+        # verification that something is changed from the previous containers description
+        if json.dumps(current_log) != json.dumps(prev_log):
+            self._logger.debug("Pending updates found. Advertising the controller")
+            with self._monitor_lock:
                 self._monitor_log = current_log
-                self._rabbit.send_controller_async(alive=False) # send an update to the controller
-                return
-                
-        self._monitor_log = current_log # update the monitor log
-
+            self._rabbit.send_controller_async(alive=False) # send an update to the controller
+            return
+        
+    """ SERVICE THREADS """
+    
+    """ executes periodically the verification of the containers """
     def _start_manager(self):
-        n = 0
         while self._exit:
-            n+=1
-            self._logger.debug("Starting new monitoration of containers monitoring: " + str(n))
             self._execute_monitor()
             sleep(self._container_time)    
 
+    """ executes periodically an heartbeat message to the controller """
     def _heartbeat(self):
         while True:
             self._rabbit.send_controller_async()
@@ -226,6 +388,7 @@ class docker_manager:
             
     """ COMMUNICATION MANAGEMENT """
     
+    """ excludes a container from the service management. The message must contains a containerID field """
     def ignore_container(self, message):
         # check if message contains the containerID field
         try:
@@ -235,19 +398,20 @@ class docker_manager:
             return {'command': 'error', 'type':'invalid_param','description':'Error, invalid parameters'}
         
         # check if the contaner is already removed
-        if container_id in self._ignore_list:
+        if self._is_ignored(container_id):
             return {'command': 'error', 'description': 'Container ' + container_id + ' already ignored'}
         
         # check if the container is present on the docker host
         containers = self._get_all_containers()
         for container in containers:
             if container.short_id == container_id: # if docker is present we can disable it from the management
-                self._ignore_list.append(container_id)
+                self._add_ignored(container_id)
                 return {'command': 'ok', 'description': 'Container ' + container_id + ' removed from the service'} 
             
         return {'command': 'error', 'type':'invalid_param','description':'Error, containerID not present'}
     
-        
+    
+    """ enable a previously excluded container from the service management. The message must contains a containerID field """    
     def add_container(self, message):
         # check if message contains the containerID field
         try:
@@ -257,44 +421,49 @@ class docker_manager:
             return {'command': 'error', 'type':'invalid_param','description':'Error, invalid parameters'}
         
         # check if the contaner is already removed
-        if not container_id in self._ignore_list:
+        if not self._is_ignored(container_id):
             return {'command': 'error', 'description': 'Container ' + container_id + ' not removed from the service'}
         
         # check if the container is present on the docker host
         containers = self._get_all_containers()
         for container in containers:
             if container.short_id == container_id: # if docker is present we can disable it from the management
-                self._ignore_list.remove(container_id)
+                self._remove_ignored(container_id)
                 return {'command': 'ok', 'description': 'Container ' + container_id + ' added to the service management'} 
             
         return {'command': 'error', 'type':'invalid_param','description':'Error, containerID not present'}
     
+    """ changes the threshold setted into the manager. The message must contains a threshold field """
     def set_threshold(self, message):
         # check if message contains the containerID field
         try:
             threshold = message["threshold"]
         except KeyError:
-            self._logger.debug("Error, containerID field needed")
+            self._logger.debug("Error, threshold field needed")
             return {'command': 'error', 'type':'invalid_param','description':'Error, required a threshold field'}
 
-        if threshold > 0 and threshold < 1 :    
-            self._threshold = threshold
+        if threshold > -1 and threshold < 101 : 
+            with self._threshold_lock:
+                self._threshold = threshold
             self._logger.debug("Set Pkt Loss threshold to ", threshold)
-            return {'command': 'ok', 'description': '[' + socket.gethostbyname(socket.gethostname()) +'] Threshold changed to ' + str(threshold)}
+            return {'command': 'ok', 'address': socket.gethostbyname(socket.gethostname()), 'description': 'Threshold changed to ' + str(threshold)}
         else:
             self._logger.debug("Error, invalid threshold: ", threshold)
-            return {'command': 'error', 'type': 'invalid_param', 'description': '[' + socket.gethostbyname(socket.gethostname()) +']Invalid threshold. Threshold must be between 0 and 1'}
+            return {'command': 'error', 'type': 'invalid_param', 'address': socket.gethostbyname(socket.gethostname()),  'description': 'Invalid threshold. Threshold must be between 0 and 100'}
         
     def get_containers_info(self, message):
-        return {'command': 'ok', 'address': self._manager_ip, 'content': self._monitor_log}
+        with self._monitor_lock:
+            return {'command': 'ok', 'address': self._manager_ip, 'content': self._monitor_log}
      
     def close_all(self):
         self._exit = False
         self._antagonist.close_all()
         self._rabbit.close_all()
 
+manager = docker_manager()
 try:
-    manager = docker_manager()
+    while True:
+        pass
 except:
     manager.close_all()
     

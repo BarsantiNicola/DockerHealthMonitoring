@@ -4,7 +4,8 @@ Description=<project description>
 [Service]
 User=root
 WorkingDirectory=/root/health_manager
-ExecStart=/bin/bash -c 'python manager.py'
+ExecStart=/bin/bash -c 'python3 manager.py'
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target

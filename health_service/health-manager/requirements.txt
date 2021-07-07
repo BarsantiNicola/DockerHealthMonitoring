@@ -1,2 +1,5 @@
 pika>=1.2.0
 docker >= 5.0.0
+icmplib >= 1.5.2
+coloredlogs >= 15.0.1
+numpy >= 1.9.2
