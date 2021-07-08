@@ -1,0 +1,50 @@
+Test:
+
+	4 different attackers behaviour:
+
+	[ {    # low attack low frequency
+                  'name'      : 'test_low_low',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,      # mean value of the gaussian for the packet loss generation
+                  'balance'   : 70,      # probability that the attacker will perform a shutdown/packet loss attack, 50% -> 50% shutdown 50% packet loss , 70% -> 70% shutdown 30% packet loss ...
+                  'heavy'     : 25,      # probability of performing an attack, 25 means 25% of the times the attack will executed
+                  'frequency' : 1,       # number of seconds between trials(so i try an attack every 1s then for the heavy the 25% of the times i will attack -> shutdown with 70% of probability, packet loss 30%
+                  'duration'  : 5        # used for packet loss, the time in which the packet loss is applied
+        },{    # low attack high frequency
+                  'name'      : 'test_low_high',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 70,
+                  'heavy'     : 25,
+                  'frequency' : 0.1,
+                  'duration'  : 5
+        },{    # heavy attack low frequency
+                  'name'      : 'test_high_low',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 70,
+                  'heavy'     : 90,
+                  'frequency' : 1,
+                  'duration'  : 20
+        },{    # heavy attack high frequency
+                  'name'      : 'test_high_high',
+                  'command'   : 'conf_antagonist',
+                  'loss'      : 80,
+                  'balance'   : 70,
+                  'heavy'     : 90,
+                  'frequency' : 0.1,
+                  'duration'  : 20
+        }]
+        
+        3 different aggregation times: [0.1,1,2.5] -> with greater numbers it loses sense(the containers always need to be updated(because attacks happens in very short times) so we have just a non-stocastic behavior in which every 		aggregation_time seconds the system updates(we can just use a calculator to know the bandwidth and availability)
+        
+        We have performed 30 repetition for each case, so 4*3*30 = 360 tests. Each test runs for 5m 
+        
+        Better accuracy could be obtained from a neutral test environment(we are into a virtual machine into a shared phisical machine and in which runs several heavy applications) and with longer times(but with 5m we need 30h so...)
+        
+        [RESULTS]
+        
+        At the end we have seen that bandwidth is not a big problem even if with larger environments(thousands of machines which runs several docker containers) it could be. We cannot perform a scalability test due to the fact that we 
+        don't have enough machines. An important element is that even if at the beginning we was thinking that with the increasing of the aggregation time we will have bigger peaks into the bandwidth(because more information needs to be
+        propagated), at the end using a low aggregation time is worst. It produces more peaks due to the fact that many request are performed during the time and so we are generating a lot of more traffic(that is not produced at all 		with higher aggregation times). For example a packet loss attack tends to produce lot of updates(because each time the packet loss percentage change a bit a new update is raised), so if we use a low aggregation time, maybe we 		have an update every 0.1s, at the end 10 updates in one seconds generates a peak that is higher than a single big update
+        

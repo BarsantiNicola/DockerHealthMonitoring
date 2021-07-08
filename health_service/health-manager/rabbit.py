@@ -149,10 +149,12 @@ class rabbit_client:
                                                  " %(levelname)s %(message)s",
                                                  "%Y-%m-%d %H:%M:%S")
             handler.setFormatter(formatter)
-
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.DEBUG)
             self._logger.addHandler(handler)
             self._logger.addHandler(file_handler)
-            self._logger.setLevel(logging.DEBUG)   # logger threshold  
+            self._logger.setLevel(logging.DEBUG)
 
     def close_all(self):
         self._logger.debug("Closing all rabbitMQ message receivers thread")
@@ -237,15 +239,14 @@ class rabbit_client:
             self._logger.debug("Starting the thread for callback queue management")
             self._callback_channel.start_consuming()
         except:
-            self._logger.warning("Closing the thread for callback queue management")
-            
+            self._logger.warning("Closing the thread for callback queue management")    
     
     def _start_receive(self):
-        try:
+       # try:
             self._logger.debug("Starting the thread for receive queue management")
             self._receive_channel.start_consuming()
-        except:
-            self._logger.warning("Closing the thread for receive queue management")
+       # except:
+       #     self._logger.warning("Closing the thread for receive queue management")
             
     """ allocate receiving queue and start them on threads """
     def _allocate_receiver(self) -> bool:

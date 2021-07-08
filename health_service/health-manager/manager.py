@@ -208,7 +208,7 @@ class docker_manager:
        except:
             self._logger.debug("Unable to connect to the docker service")
             return False
-    
+                
     """ MUTUAL EXCLUSION DATA MANAGEMENT """
     
     """ we have three variables into the manager that could be accessed cuncurrently by different threads and
@@ -222,13 +222,13 @@ class docker_manager:
     """ excludes a container from the service management """       
     def _add_ignored(self, containerID):
         with self._ignore_lock:
-            self._ignored_list.append(containerID)
+            self._ignore_list.append(containerID)
             self._save_ignored()
     
     """ removes a container from the excluded by the service management """
     def _remove_ignored(self, containerID):
         with self._ignore_lock:
-            self._ignored_list.remove(containerID)
+            self._ignore_list.remove(containerID)
             self._save_ignored()
             
     """ verifies if a container is previusly restarted from the service management.
@@ -264,7 +264,23 @@ class docker_manager:
     def _get_all_containers(self) -> list:
         return self._containers_env.containers.list(all=True)
     
-
+    def _shutdown_container(self,targetID) -> bool:
+        try:
+            containers = self._get_all_containers()
+            for container in containers:
+                if container.short_id == targetID:
+                    container.stop()
+                    return True
+        except:
+            pass
+        return False
+    
+    def _get_ip_addr(self, targetID):
+        try:
+            return self._docker_env.inspect_container(targetID)['NetworkSettings']['Networks']['bridge']['IPAddress']
+        except:
+            return None
+              
     """ Periodic containers analysis """
     def _execute_monitor(self):
         
@@ -315,11 +331,11 @@ class docker_manager:
                                     update = True
                                     container_desc['container_state'] ='restart'
                                 else: 
-                                    self._loggin.warning("Container " + str(container.short_id) + " already restarted. Abort operation")
+                                    self._logger.warning("Container " + str(container.short_id) + " already restarted. Abort operation")
                                     container_desc['container_state'] ='offline'
                                     container_desc['details'] = 'Container offline. Trying to restart it'
                             except:
-                                self._loggin.warning("Error during the restart of "+ container.short_id)
+                                self._logger.warning("Error during the restart of "+ container.short_id)
                                 container_desc['container_state'] ='offline'
                                 container_desc['details'] = 'Container offline. Trying to restart it'
                                 
@@ -395,17 +411,18 @@ class docker_manager:
             container_id = message["containerID"]
         except KeyError:
             self._logger.debug("Error, containerID field needed")
-            return {'command': 'error', 'type':'invalid_param','description':'Error, invalid parameters'}
+            return {'command': 'error', 'type':'INVALID_PARAM','description':'Error, invalid parameters'}
         
         # check if the contaner is already removed
         if self._is_ignored(container_id):
-            return {'command': 'error', 'description': 'Container ' + container_id + ' already ignored'}
+            return {'command': 'error', 'type': 'INVALID_REQUEST', 'description': 'Container ' + container_id + ' already ignored'}
         
         # check if the container is present on the docker host
         containers = self._get_all_containers()
         for container in containers:
             if container.short_id == container_id: # if docker is present we can disable it from the management
                 self._add_ignored(container_id)
+                self._logger.debug("IGNORED: " + json.dumps(self._ignore_list))
                 return {'command': 'ok', 'description': 'Container ' + container_id + ' removed from the service'} 
             
         return {'command': 'error', 'type':'invalid_param','description':'Error, containerID not present'}
@@ -422,7 +439,7 @@ class docker_manager:
         
         # check if the contaner is already removed
         if not self._is_ignored(container_id):
-            return {'command': 'error', 'description': 'Container ' + container_id + ' not removed from the service'}
+            return {'command': 'error', 'type': 'INVALID_REQUEST', 'description': 'Container ' + container_id + ' not removed from the service'}
         
         # check if the container is present on the docker host
         containers = self._get_all_containers()
@@ -431,7 +448,7 @@ class docker_manager:
                 self._remove_ignored(container_id)
                 return {'command': 'ok', 'description': 'Container ' + container_id + ' added to the service management'} 
             
-        return {'command': 'error', 'type':'invalid_param','description':'Error, containerID not present'}
+        return {'command': 'error', 'type':'INVALID_PARAM','description':'Error, containerID not present'}
     
     """ changes the threshold setted into the manager. The message must contains a threshold field """
     def set_threshold(self, message):

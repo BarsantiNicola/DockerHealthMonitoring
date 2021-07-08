@@ -12,7 +12,6 @@ from datetime import timedelta
 import socket
 from time import sleep
 from pandas import DataFrame
-
 """
 
     Class to generate a controller for the docker health monitor service. The controller has the following duties:
@@ -65,8 +64,8 @@ class controller:
 
            'add_antagonists' : self.add_antagonists,
            'add_host_antagonist' : self.add_host_antagonist,
-           'change_antagonists_config' : self.change_antagonists_config,
-           'change_host_antagonist_config' : self.change_host_antagonist_config,
+           'change_antagonists_conf' : self.change_antagonists_config,
+           'change_host_antagonist_conf' : self.change_host_antagonist_config,
            'remove_antagonists' : self.remove_antagonists,
            'remove_host_antagonist' : self.remove_host_antagonist , 
            
@@ -173,7 +172,7 @@ class controller:
                 self._containers_data.append({
                         'address' : docker['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
-                        'status' : 'offline',    # we don't know yet if the manager is correctly allocated
+                        'manager_status' : 'offline',    # we don't know yet if the manager is correctly allocated
                         'last_alive' : datetime.now() + timedelta(minutes=5) })   # to know soon or later if the manager is active
             self._logger.debug("Containers data table build")
             
@@ -211,7 +210,7 @@ class controller:
         return False
 
     """ removes a docker manager instance from the docker manager container """
-    def _remove_docker(self, address) -> bool:
+    def _remove_docker(self, address):
         
         with self._docker_lock: # we need to garantee the mutual exclusion
             self._logger.debug("Searching the docker manager instance: " + address + " for docker manager removal")  
@@ -222,10 +221,13 @@ class controller:
                     self._logger.debug("Docker manager removed")  
                     # in order to reduce the time in mutual exclusion and simplify the code the saving 
                     # of the updates is done on the caller function
-                    return True
-                
-        self._logger.debug("Docker manager not found")          
-        return False
+
+        with self._info_lock:
+            for docker in self._containers_data:
+               if docker['address'] == address:
+                   self._containers_data.remove(docker)
+       
+
         
     """ used for the docker manager removal, get the password of the host from the ip address of the docker manager """
     def _get_docker_password(self, address) -> str:
@@ -325,7 +327,7 @@ class controller:
                     self._containers_data.append({
                         'address' : message['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
-                        'status' : 'offline',    # we don't know yet if the manager is correctly running
+                        'manager_status' : 'offline',    # we don't know yet if the manager is correctly running
                         'last_alive' : datetime.now() + timedelta(minutes=5) })   # to know soon or later if the manager is active
                 self._logger.debug("Controller has complete the update")
                 if self._save_data() is True:
@@ -360,11 +362,11 @@ class controller:
                 # generation of a secure ftp session for the data transfer
                 self._logger.debug("Manager service stopped")
 
-                ssh.exec_command('rm /etc/systemd/system/docker-health-monitor.service')
-                ssh.exec_command('rm -R /root/health_manager')
                 ssh.exec_command('systemctl daemon-reload')
                 ssh.exec_command('systemctl disable docker-health-monitor')
                 ssh.exec_command('systemctl stop docker-health-monitor')
+                ssh.exec_command('rm /etc/systemd/system/docker-health-monitor.service')
+                ssh.exec_command('rm -R /root/health_manager')
                 ssh.close()
                 self._logger.debug("Data completely removed from the machine " + message['address'] + ". Secure channel closed")
                 self._remove_docker(message['address'])
@@ -388,7 +390,7 @@ class controller:
             for docker in self._containers_data:
                 if docker['address'] == address:
                     self._logger.debug("Container found")
-                    return docker['status']
+                    return docker['manager_status']
                 
         self._logger.debug("Container not found")        
         return ''
@@ -407,8 +409,8 @@ class controller:
             for docker in self._containers_data:
                 if docker['address'] == message['address']:
                     self._logger.debug("Container found")
-                    if docker['status'] != 'wait_update': # if controller is already waiting the update no change needed
-                        docker['status'] = 'update_present'
+                    if docker['manager_status'] != 'wait_update': # if controller is already waiting the update no change needed
+                        docker['manager_status'] = 'update_present'
                         docker['last_alive'] = datetime.now() + timedelta(minutes=5)
                         self._logger.debug("Container " + message['address'] + " status set to 'update_present'")
                         return True
@@ -425,7 +427,7 @@ class controller:
             for docker in self._containers_data:
                 if docker['address'] == address:
                     self._logger.debug("Container " + address + " found. Status set to 'offline'")
-                    docker['status'] = 'offline'
+                    docker['manager_status'] = 'offline'
                     return True 
         self._logger.debug("Container not found")          
         return False
@@ -438,7 +440,7 @@ class controller:
                 if docker['address'] == address:
                     docker['content'] = content
                     docker['last_alive'] = datetime.now() + timedelta(minutes=5)
-                    docker['status'] = 'updated'
+                    docker['manager_status'] = 'updated'
                     self._logger.debug("Container found")
                     return True
         
@@ -483,7 +485,7 @@ class controller:
             self._logger.warning("Manager not found. Not registered into the controller")
             return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
                 
-        if dock['status'] == 'update_present':
+        if dock['manager_status'] == 'update_present':
             self._logger.debug( "Status of the manager: update_present. Sending a content request")
             result = self._rabbit.send_manager_unicast(json.dumps({
                     "command" : "give_content",
@@ -539,7 +541,7 @@ class controller:
             self._logger.warning("Manager not found. Not registered into the controller")
             return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
                 
-        if dock['status'] == 'update_present':
+        if dock['manager_status'] == 'update_present':
             self._logger.debug( "Status of the manager: update_present. Sending a content request")
             result = self._rabbit.send_manager_unicast({
                     "command" : "give_content"
@@ -586,7 +588,7 @@ class controller:
             self._logger.warning("Manager not found. Not registered into the controller")
             return { 'command':'error', 'type': 'invalid_op', 'description': 'Selected host is not present into the service'}
                 
-        if dock['status'] == 'update_present':
+        if dock['manager_status'] == 'update_present':
             self._logger.debug( "Status of the manager: update_present. Sending a content request")
             result = self._rabbit.send_manager_unicast({
                     "command" : "give_content"
@@ -629,7 +631,7 @@ class controller:
         updates_required = []
         with self._info_lock: # we need to garantee mutual exclusion
             for docker in self._containers_data:
-                if docker['status'] == 'update_present':
+                if docker['manager_status'] == 'update_present':
                     self._logger.debug( "Manager of " + docker['address'] +" needs to be updated")
                     updates_required.append(docker['address'])
             
@@ -673,8 +675,8 @@ class controller:
                     if docker['address'] == message['address']:
                         self._logger.debug("Container found")
                         docker['last_alive'] = datetime.now() + timedelta(minutes=5)
-                        if docker['status'] == 'offline':
-                            docker['status'] = 'update_present'
+                        if docker['manager_status'] == 'offline':
+                            docker['manager_status'] = 'update_present'
                             self._logger.debug("Changed manager status from offline to update_present")
                         return True
             except KeyError:
@@ -692,7 +694,7 @@ class controller:
             docker_request = list()
             with self._info_lock:
                 for docker in self._containers_data:
-                    if docker['status'] == 'update_present':
+                    if docker['manager_status'] == 'update_present':
                         docker_request.append(docker['address'])
             for docker in docker_request:
                 self._logger.debug("Found a pending update. Start synchronization for manager at " + docker)
@@ -716,7 +718,7 @@ class controller:
             with self._info_lock:
                 for docker in self._containers_data:
                     if docker['last_alive'] < datetime.now():
-                        docker['status'] = 'offline'
+                        docker['manager_status'] = 'offline'
             
             time.sleep(60)
         self._logger.debug("Closing heartbeat thread")
@@ -761,14 +763,14 @@ class controller:
             message['threshold']
         except KeyError:
             self._logger.error("Error, the function requires an address field")
-            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address'}
+            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter threshold'}
         
         responses = list()
         for docker in self._containers_data:
-            if docker['status'] != 'offline':
+            if docker['manager_status'] != 'offline':
                 responses.append(self.change_threshold({'address': docker['address'], 'threshold': message['threshold']}))
 
-        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': responses}
 
     def change_threshold(self, message) -> dict:
         try:
@@ -776,7 +778,7 @@ class controller:
             message['threshold']
         except KeyError:
             self._logger.error("Error, the function requires an address and a threshold field")
-            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address and a threshold fields'}
+            return { 'command':'error', 'type': 'missing_par', 'description': 'Missing parameter address and/or a threshold fields'}
         
         self._logger.debug("Received request to set the threshold to " + str(message['threshold']) + " to " + message['address'])       
         return self._rabbit.send_manager_unicast({
@@ -790,9 +792,9 @@ class controller:
         
         responses = []
         for docker in self._containers_data:
-            if docker['status'] != 'offline':
+            if docker['manager_status'] != 'offline':
                 responses.append(self.add_host_antagonist({'address': docker['address']}))
-        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': responses}
     
     def add_host_antagonist(self, message):
         try:
@@ -809,9 +811,9 @@ class controller:
     def remove_antagonists(self, message):
         responses = []
         for docker in self._containers_data:
-            if docker['status'] != 'offline':
+            if docker['manager_status'] != 'offline':
                 responses.append(self.remove_host_antagonist({'address': docker['address']}))
-        return {'command': "ok", 'description': 'Responses received: ' + json.dumps(responses)}
+        return {'command': "ok", 'description': responses}
 
             
     def remove_host_antagonist(self, message):
@@ -841,7 +843,7 @@ class controller:
  
         responses = []
         for docker in self._containers_data:
-            if docker['status'] != 'offline':
+            if docker['manager_status'] != 'offline':
                 responses.append(self.change_host_antagonist_config({
                         'heavy' : message['heavy'],
                         'balance' : message['balance'],
@@ -903,7 +905,7 @@ class controller:
             update = False
             with self._info_lock:
                 for docker in self._containers_data:
-                    if docker['status'] == 'update_present':
+                    if docker['manager_status'] == 'update_present':
                         update = True
             if update is True:
                 self._availability.loc[datetime.now()] = [0]
@@ -981,9 +983,9 @@ class controller:
         self._logger.debug("TEST: " + json.dumps(self.remove_antagonists({})))
         self._collect_data = False
                 
-control = controller()
+"""control = controller()
 try:
     while True:
         pass
 except KeyboardInterrupt:
-    control.close_all()
+    control.close_all()"""

@@ -1,0 +1,770 @@
+openapi: 3.0.0
+info:
+  title: API
+  version: 1.0.0
+  contact:
+    name: Lost(In The Cloud)
+  description: >-
+    Interface for communicating with the Health-Monitor service. Its
+    functionalities can be organized in the following set of operations:
+       - Operations for service management:  permits to add and remove docker hosts to the system and to uninstall it
+       - Operations for container management: permits to see the managed containers, their status and to change the container manager configuration
+       - Operations for testing purpose: permits to test the service with configurable attacks to the containers
+security: []
+servers:
+  - url: 'http://172.16.3.167:8080/healthmonitor'
+    description: >-
+      Unipi Virtual Machine offered by the course. A VPN connection to the unipi
+      cloud is required
+    variables: {}
+paths:
+  /containers:
+    get:
+      summary: Gives all the managed containers by the service
+      description: >-
+        It doesn't require any parameter and gives back a set of lists each one
+        describing the containers inside a particular managed docker host. The
+        response will contain for each docker host its status and a list of all
+        the containers with information about their status and the current
+        packet loss measured
+      parameters: []
+      operationId: get_all_containers
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllContainersResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+    post:
+      summary: 'Change the threshold configured into each manager. '
+      description: >-
+        Change the threshold configured into the docker managers. Each manager
+        have a personal threshold used to identify if the packet loss percentage
+        is too high and the container needs to be restarted.
+      parameters: []
+      operationId: change_all_thresholds
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectMultiResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                threshold:
+                  type: number
+                  example: 60
+
+        description: >-
+          The request requires the threshold value to be set into the managers.
+          The value is a percentage so it needs to be between 0 and 100 to be
+          accepted.
+  '/containers/{address}':
+    x-temp:
+      summary: Remove a registered docker host into the service
+      description: >-
+        Uninstall the selected manager from the machine. The system has already
+        stored the password but its required in order to secure the operation
+        and prevent that users will disable the managers
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The IPv4 address of the selected machine
+          minLength: ''
+      operationId: remove_docker_manager
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  example: 'root'
+
+        description: >-
+          The operation requires the password of the root user on the remote
+          machine. It also requires that on the remote machine an ssh connection
+          is present on the default port 23
+    get:
+      summary: >-
+        Get the status of the selected docker host and a list of all the managed
+        containers with their status and the current packet loss percentage
+        measured
+      description: >-
+        It doesn't require any parameter and gives back a set of lists each one
+        describing the containers inside a particular managed docker host. The
+        response will contain for each docker host its status and a list of all
+        the containers with information about their status and the current
+        packet loss measured
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            example: '172.16.3.167'
+            description: The IPv4 address of the selected machine
+      operationId: get_manager_containers
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+    delete:
+      summary: Remove a registered docker host into the service
+      description: >-
+        Uninstall the selected manager from the machine. The system has already
+        stored the password but its required in order to secure the operation
+        and prevent that users will disable the managers
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            example: '172.16.3.167'
+            description: The IPv4 address of the selected machine
+      operationId: remove_docker_manager
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+    put:
+      summary: Add a new docker host into the service
+      description: >-
+        Install a new manager into the the selected machine. The operations
+        requires the root password of the destination machine and that a ssh
+        connection is present on the default port 23
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the selected machine
+            example: '172.16.3.167'
+      operationId: add_docker_manager
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: 'object'
+              properties:
+                password: 
+                  type: 'string'
+                  example: 'root'
+
+        description: >-
+          The operation requires the password of the root user of the
+          destination machine
+    post:
+      summary: 'Change the threshold configured into the selected manager. '
+      description: >-
+        Change the threshold configured into the selected docker manager. Each
+        manager have a personal threshold used to identify if the packet loss
+        percentage is too high and the container needs to be restarted.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the destination machine
+            example: '172.16.3.167'
+      operationId: change_manager_threshold
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: 'object'
+              properties:
+                threshold: 
+                  type: 'integer'
+                  example: 70
+
+        description: >-
+          The operation requires a threshold parameters to be set into the
+          machine. The threshold must be between 0 and 100
+  '/containers/{address}/{containerID}':
+    get:
+      summary: Gives information about the selected container
+      description: >-
+        The request returns the status and the packet loss of the selected
+        container
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the selected manager
+            example: '172.16.3.167'
+        - name: containerID
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'asd12pomfa1g'
+            description: >-
+              The short id of the selected container. Short ids could be seen from
+              the request of containers information
+      operationId: get_container_info
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+    put:
+      summary: Add a container to the service
+      description: >-
+        Add a previously ignored container to the service. By default all the
+        containers are added to the service
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the selected manager
+            example: '172.16.3.167'
+        - name: containerID
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'asd12pomfa1g'
+            description: >-
+              The short id of the selected container. Short ids could be seen from
+              the request of containers information
+      operationId: add_container
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+    delete:
+      summary: Remove a container from the service
+      description: >-
+        Ignore a container from the service management. By default all the
+        containers are added to the service
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the selected manager
+            example: '172.16.3.167'
+        - name: containerID
+          in: path
+          required: true
+          schema:
+            type: string
+            example: 'asd12pomfa1g'
+            description: >-
+              The short id of the selected container. Short ids could be seen from
+              the request of containers information
+      operationId: ignore_container
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+  /test:
+    post:
+      summary: Change all the antagonists configuration
+      description: >-
+        Change the configuration of all the antagonist. The configuration
+        consists of five different parameters:
+
+        - heavy: defines the probability that the attacker will choose to attack
+        a container
+
+        - balance: defines the probability that the attackers will perform a
+        packet loss attack or a shutdown attack
+
+        - loss: defines the mean packet loss value introduced during an
+        attack(the value will be the mean of normal distribution)
+
+        - duration: defines the duration of a packet loss attack to a container.
+        The value will be the lambda of an exponential distribution
+
+        - frequency: defines the interleaving time of each attacker between the
+        possibility to perform an attack  
+      operationId: change_all_antagonists_conf
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectMultiResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: 'object'
+              properties:
+                heavy: 
+                  type: 'integer'
+                  description: 'Probability between 0 and 100 that an attacker perform an attack'
+                  example: 25
+                balance: 
+                  type: 'integer'
+                  description: 'Probability between 0 and 100 that an attacker perform a shutdown attack'
+                  example: 50
+                loss: 
+                  type: 'integer'
+                  description: 'Percentage of packet loss'
+                  example: 70
+                duration:
+                  type: 'integer'
+                  description: 'Seconds of packet loss attack duration'
+                  example: 5
+                frequency:
+                  type: 'integer'
+                  description: 'Seconds between two consecutives attack to the same container'
+                  example: 3
+
+        description: >-
+          The request body can contain this fields: 
+
+          - heavy: defines the probability that the attacker will choose to
+          attack a container. It's a value between 0 and 100
+
+          - balance: defines the probability that the attackers will perform a
+          packet loss attack or a shutdown attack. It's a value between 0 and
+          100, the more the value tends to 100 the more the probability is to
+          perform a shutdown attack
+
+          - loss: defines the mean packet loss value introduced during an
+          attack(the value will be the mean of normal distribution). It's a
+          value between 0 and 100
+
+          - duration: defines the duration of a packet loss attack to a
+          container. The value will be the lambda of an exponential
+          distribution. The value is expressed in seconds
+
+          - frequency: defines the interleaving time of each attacker between
+          the possibility to perform an attack . The value is expressed in
+          seconds
+
+
+          If a field is missing simply it will not be changed, but no errors
+          will be raised
+    put:
+      summary: Starts all the antagonists
+      description: >-
+        Into each docker manager is linked an antagonist able to attack all the
+        container into the local docker host. Starting the antagonist will
+        perform an attack on all the containers with the last configuration
+        provided. If no configuration has been provided than a default
+        configuration will be used.
+      parameters: []
+      operationId: start_all_antagonists
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectMultiResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+    delete:
+      summary: Stop all the antagonists
+      description: >-
+        The function will stop all the attackers into all the docker host. A
+        started attack needs to be stop otherwise it will continue forever.
+      parameters: []
+      operationId: stop_all_antagonist
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BadResponse'
+
+  '/test/{address}':
+    post:
+      summary: Change an antagonist configuration
+      description: >-
+        Change the configuration of the selected antagonist. The configuration
+        consists of five different parameters:
+
+        - heavy: defines the probability that the attacker will choose to attack
+        a container
+
+        - balance: defines the probability that the attackers will perform a
+        packet loss attack or a shutdown attack
+
+        - loss: defines the mean packet loss value introduced during an
+        attack(the value will be the mean of normal distribution)
+
+        - duration: defines the duration of a packet loss attack to a container.
+        The value will be the lambda of an exponential distribution
+
+        - frequency: defines the interleaving time of each attacker between the
+        possibility to perform an attack  
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the destination
+            example: '172.16.3.167'
+      operationId: change_antagonist_conf
+      responses:
+        '200':
+          description: Correct response
+          content:
+            application/json:
+              schema: 
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema: 
+                $ref: '#/components/schemas/BadResponse'
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: 'object'
+              properties:
+                heavy: 
+                  type: 'integer'
+                  description: 'Probability between 0 and 100 that an attacker perform an attack'
+                  example: 25
+                balance: 
+                  type: 'integer'
+                  description: 'Probability between 0 and 100 that an attacker perform a shutdown attack'
+                  example: 50
+                loss: 
+                  type: 'integer'
+                  description: 'Percentage of packet loss'
+                  example: 70
+                duration:
+                  type: 'integer'
+                  description: 'Seconds of packet loss attack duration'
+                  example: 5
+                frequency:
+                  type: 'integer'
+                  description: 'Seconds between two consecutives attack to the same container'
+                  example: 3
+
+        description: >-
+          The request body can contain this fields: 
+
+          - heavy: defines the probability that the attacker will choose to
+          attack a container. It's a value between 0 and 100
+
+          - balance: defines the probability that the attackers will perform a
+          packet loss attack or a shutdown attack. It's a value between 0 and
+          100, the more the value tends to 100 the more the probability is to
+          perform a shutdown attack
+
+          - loss: defines the mean packet loss value introduced during an
+          attack(the value will be the mean of normal distribution). It's a
+          value between 0 and 100
+
+          - duration: defines the duration of a packet loss attack to a
+          container. The value will be the lambda of an exponential
+          distribution. The value is expressed in seconds
+
+          - frequency: defines the interleaving time of each attacker between
+          the possibility to perform an attack . The value is expressed in
+          seconds
+
+
+          If a field is missing simply it will not be changed, but no errors
+          will be raised
+    put:
+      summary: Start an antagonist
+      description: >-
+        Into each docker manager is linked an antagonist able to attack all the
+        container into the local docker host. Starting the antagonist will
+        perform an attack on all the containers with the last configuration
+        provided. If no configuration has been provided than a default
+        configuration will be used.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the destination
+            example: '172.16.3.167'
+      operationId: start_antagonist
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+    delete:
+      summary: Stop an antagonist
+      description: >-
+        The function will stop the selected antagonist to attack the local
+        docker host. A started attack needs to be stop otherwise it will
+        continue forever.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The IPv4 address of the destination
+            example: '172.16.3.167'
+      operationId: stop_antagonist
+      responses:
+        '200':
+          description: Correct Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectResponse'
+
+
+components:
+
+  schemas:
+    CorrectResponse:
+      properties:
+        command:
+          type: 'string'
+          example: 'ok'
+          description: 'type of results: ok or error'
+        content: 
+          type: object
+          example: 'Request correctly executed'
+          description: 'Brief description of the operation result'
+        
+    CorrectMultiResponse:
+      properties:
+        command:
+          type: 'string'
+          example: 'ok'
+          description: 'type of results: ok or error'
+        content:
+          type: 'array'
+          items: 
+            type: 'object'
+            
+    BadResponse:
+      properties:
+        command:
+          type: 'string'
+          example: 'ok'
+          description: 'type of results: ok or error'
+        type:
+          type: 'string'
+          example: 'INVALID_REQUEST'
+          description: 'short description of the error'
+        description: 
+          type: string
+          example: 'Request correctly executed'
+          description: 'Brief description of the operation result'
+    
+    AllContainersResponse:
+      properties:
+        command:
+          type: 'string'
+          example: 'ok'
+          description: 'type of results: ok or error'
+        description:
+          type: 'array'
+          items:
+            type: 'object'
+            properties:
+              address:
+                type: 'string'
+                example: '172.16.3.167'
+                description: 'the IPv4 address of the selected docker host'
+              content:
+                type: 'object'
+                
+    ContainerResponse:
+      properties:
+        command:
+          type: 'string'
+          example: 'ok'
+          description: 'type of results: ok or error'
+        description:
+          type: 'object'
+          properties:
+            address:
+              type: 'string'
+              example: '172.16.3.167'
+              description: 'the IPv4 address of the selected docker host'
+            content:
+              type: 'object' 
+              

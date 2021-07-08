@@ -61,7 +61,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CorrectResponse'
+                $ref: '#/components/schemas/CorrectMultiResponse'
         "400":
           description: Bad Request
           content:
@@ -383,7 +383,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CorrectResponse'
+                $ref: '#/components/schemas/CorrectMultiResponse'
         "400":
           description: Bad Request
           content:
@@ -429,7 +429,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CorrectResponse'
+                $ref: '#/components/schemas/CorrectMultiResponse'
         "400":
           description: Bad Request
           content:
@@ -584,13 +584,28 @@ components:
           type: string
           description: "type of results: ok or error"
           example: ok
-        description:
-          type: string
+        content:
+          type: object
           description: Brief description of the operation result
           example: Request correctly executed
       example:
-        description: Request correctly executed
         command: ok
+        content: Request correctly executed
+    CorrectMultiResponse:
+      properties:
+        command:
+          type: string
+          description: "type of results: ok or error"
+          example: ok
+        content:
+          type: array
+          items:
+            type: object
+      example:
+        command: ok
+        content:
+        - {}
+        - {}
     BadResponse:
       properties:
         command:

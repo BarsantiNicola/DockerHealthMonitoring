@@ -8,7 +8,6 @@ import sys
 import coloredlogs
 import threading
 import socket
-
 class antagonist:
     
     def __init__(self, config, manager):
@@ -75,14 +74,7 @@ class antagonist:
             self._logger.error('Error, address field not found')
             
         return False 
-    
 
-        self._pkt_loss_rate = 80
-        self._pkt_loss_rate_lock = threading.Lock()
-        self._freq_param = 0.5
-        self._freq_param_lock = threading.Lock()
-        self._duration_param = 5
-        self._duration_param_lock = threading.Lock()
     
     """ MUTUAL EXCLUSION DATA MANAGEMENT """
     
@@ -101,7 +93,7 @@ class antagonist:
 
     """ gets the heavy value respecting mutual exclusion """
     def _get_heavy(self):
-        with self._heavy_rate:
+        with self._heavy_rate_lock:
             return self._heavy_rate
         
     """ sets the heavy value respecting mutual exclusion """    
@@ -141,23 +133,25 @@ class antagonist:
          
     """ ANTAGONIST ATTACKS """
     
-    def _attack_containers(self, target):
+    def _attack_containers(self, targetID):
 
-        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(target.short_id) + " started")
+        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetID) + " started")
 
         while self._attack is True:
             try:
-                if not self._manager._is_ignored(target.short_id):
+                if self._manager._is_ignored(targetID) is False:
                     if random.uniform(0,1)<self._get_heavy()/100:
                         if random.uniform(0,1) < self._get_balance()/100:
-                            self._logger.info("Shutdown container " + str(target.short_id))
-                            target.stop()
+                            self._logger.info("Shutdown container " + str(targetID))
+                            self._manager._shutdown_container(targetID)
                         else:
-                            self._logger.info("Packet loss attack on container " + str(target.short_id))
-                            self._exec_packet_loss_attack(self._manager._docker_env.inspect_container(target.short_id)['NetworkSettings']['Networks']['bridge']['IPAddress'])
+                            self._logger.info("Packet loss attack on container " + str(targetID))
+                            self._exec_packet_loss_attack(self._manager._get_ip_addr(targetID))
             except:
+                self._logger.warning("An exception has occurred during the attack")
                 pass
             sleep(numpy.random.exponential(self._freq_param)) 
+        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetID) + " stopped")
             
     def _set_packet_loss_attack(self):
         os.system("tc qdisc add dev docker0 root handle 1: prio priomap 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0")
@@ -184,14 +178,14 @@ class antagonist:
         for container in containers:
             if not self._manager._is_ignored(container.short_id):
                 self._logger.debug("Launching attack thread for " + str(container.short_id))
-                threading.Thread(target=self._attack_containers, args=(container,)).start()
+                threading.Thread(target=self._attack_containers, args=(container.short_id,)).start()
                 
-        return {'command':'ok','description': 'Antagonist started'}
+        return {'command':'ok','address': socket.gethostbyname(socket.gethostname()), 'description': 'Antagonist started'}
     
     def _disable_antagonist(self, message):
         self._attack = False
         self._logger.info("Antagonist attack stopped")
-        return {'command':'ok', 'description' : 'Antagonist stopped' }
+        return {'command':'ok', 'address': socket.gethostbyname(socket.gethostname()), 'description' : 'Antagonist stopped' }
     
     def _conf_antagonist(self, message):
         

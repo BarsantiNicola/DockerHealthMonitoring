@@ -11,6 +11,7 @@ from swagger_server.models.container_response import ContainerResponse  # noqa: 
 from swagger_server.models.containers_address_body import ContainersAddressBody  # noqa: E501
 from swagger_server.models.containers_address_body1 import ContainersAddressBody1  # noqa: E501
 from swagger_server.models.containers_body import ContainersBody  # noqa: E501
+from swagger_server.models.correct_multi_response import CorrectMultiResponse  # noqa: E501
 from swagger_server.models.correct_response import CorrectResponse  # noqa: E501
 from swagger_server.models.test_address_body import TestAddressBody  # noqa: E501
 from swagger_server.models.test_body import TestBody  # noqa: E501

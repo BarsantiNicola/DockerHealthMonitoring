@@ -8,6 +8,7 @@ import coloredlogs
 from swagger_server.models.all_containers_response import AllContainersResponse  # noqa: E501
 from swagger_server.models.all_containers_response_description import AllContainersResponseDescription  # noqa: E501
 from swagger_server.models.bad_response import BadResponse  # noqa: E501
+from swagger_server.models.correct_multi_response import CorrectMultiResponse  # noqa: E501
 from swagger_server.models.container_response import ContainerResponse  # noqa: E501
 from swagger_server.models.containers_address_body import ContainersAddressBody  # noqa: E501
 from swagger_server.models.containers_address_body1 import ContainersAddressBody1  # noqa: E501
@@ -159,7 +160,7 @@ If a field is missing simply it will not be changed, but no errors will be raise
         try:
             result = client.send_controller_sync(request, configuration['address'])
             if result['command'] == 'ok':
-                return CorrectResponse(result['command'],result['description'])
+                return CorrectMultiResponse('ok',result['description'])
             else:
                 return BadResponse(result['command'],result['type'],result['description'])
         except:
@@ -188,7 +189,7 @@ def change_all_thresholds(body):  # noqa: E501
                     'threshold': body._threshold}, configuration['address'])
             if result['command'] == 'ok':
                 logger.debug("RESPONSE: " + json.dumps(result))
-                return CorrectResponse(result['command'],result['description'])
+                return CorrectMultiResponse('ok',result['description'])
             else:
                 return BadResponse(result['command'],result['type'],result['description'])
         except ValueError:
@@ -272,7 +273,7 @@ def change_manager_threshold(body, address):  # noqa: E501
             result = client.send_controller_sync({
                     'command':'change_threshold',
                     'address': address,
-                    'containerID': body._threshold}, configuration['address'])
+                    'threshold': body._threshold}, configuration['address'])
             if result['command'] == 'ok':
                 return CorrectResponse(result['command'],result['description'])
             else:
@@ -417,7 +418,7 @@ def start_all_antagonists():  # noqa: E501
             'command':'add_antagonists',
             'address': configuration['address']}, configuration['address'])
         if result['command'] == 'ok':
-            return CorrectResponse(result['command'],result['description'])
+            return CorrectMultiResponse('ok',result['description'])
         else:
             return BadResponse(result['command'],result['type'],result['description'])
     except:
@@ -461,7 +462,7 @@ def stop_all_antagonist():  # noqa: E501
             'command':'remove_antagonists',
             'address': configuration['address']}, configuration['address'])
         if result['command'] == 'ok':
-            return CorrectResponse(result['command'],result['description'])
+            return CorrectMultiResponse('ok',result['description'])
         else:
             return BadResponse(result['command'],result['type'],result['description'])
     except:
