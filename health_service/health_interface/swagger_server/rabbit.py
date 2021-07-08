@@ -13,36 +13,31 @@ from datetime import timedelta
 import inspect
 import ctypes
 
+"""
+    A thread class that supports raising exception in the thread from
+    another thread.
+"""
 class ThreadWithExc(threading.Thread):
-    '''A thread class that supports raising exception in the thread from
-       another thread.
-    '''
-    def _get_my_tid(self):
-        """determines this (self's) thread id
 
-        CAREFUL : this function is executed in the context of the caller
-        thread, to get the identity of the thread represented by this
-        instance.
-        """
+    """determines this (self's) thread id"""
+    def _get_my_tid(self):
+
         if not self.isAlive():
             raise threading.ThreadError("the thread is not active")
 
         # do we have it cached?
         if hasattr(self, "_thread_id"):
             return self._thread_id
-
-        # no, look for it in the _active dict
+        
         for tid, tobj in threading._active.items():
             if tobj is self:
                 self._thread_id = tid
                 return tid
-
-        # TODO: in python 2.6, there's a simpler way to do : self.ident
-
         raise AssertionError("could not determine the thread's id")
 
+    """ Raises an exception in the threads with id tid"""
     def _async_raise(self, tid, exctype):
-        '''Raises an exception in the threads with id tid'''
+
         if not inspect.isclass(exctype):
             raise TypeError("Only types can be raised (not instances)")
         res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid),
@@ -54,44 +49,32 @@ class ThreadWithExc(threading.Thread):
             # and you should call it again with exc=NULL to revert the effect"
             ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), None)    
             raise SystemError("PyThreadState_SetAsyncExc failed")
-    
+            
+    """Raises the given exception type in the context of this thread"""   
     def raiseExc(self, exctype):
-        """Raises the given exception type in the context of this thread.
-
-        If the thread is busy in a system call (time.sleep(),
-        socket.accept(), ...), the exception is simply ignored.
-
-        If you are sure that your exception should terminate the thread,
-        one way to ensure that it works is:
-
-            t = ThreadWithExc( ... )
-            ...
-            t.raiseExc( SomeException )
-            while t.isAlive():
-                time.sleep( 0.1 )
-                t.raiseExc( SomeException )
-
-        If the exception is to be caught by the thread, you need a way to
-        check that your thread has caught it.
-
-        CAREFUL : this function is executed in the context of the
-        caller thread, to raise an excpetion in the context of the
-        thread represented by this instance.
-        """
         self._async_raise( self._get_my_tid(), exctype )     
 
 
+""" 
+    Class that implement a rabbitMQ client. Each client consists of three channels opened on a unique connection to a
+    rabbitMQ message broker. The channels are used to implement two queues for message receival and a message sending mechanism.
+    The client offers both asynchronous that synchronous communication using a main queue for message receival from three different
+    key words:
+        - receiver_type
+        - receiver_type.IP_ADDRESS
+    And a callback queue for receiving request' replies and implement the synchronous communication:
+        - receiver_type.IP_ADDRESS.callback
+    
+    The class accept all the strings as receiver_type, however it is designed to use:
+        - antagonist
+        - manager
+        - controller
+        - interface
+"""
+    
 class rabbit_client:
 
-    """ initialize the rabbit_client class
-        Parameters:
-            - address: the Ipv4 address of a rabbitMQ instance
-            - receiver_type: type of module which use the rabbit_client(antagonist, manager, controller, interface)
-            - responses: a dictionary of all the command which the client must respond connected with a function to be invoked
-                         ex: { 'test': test, 'give_content': get_data }
-                         all the functions must get as a parameter only a dictionary(the message received)
-    """
-    
+
     def __init__(self, address, receiver_type, responses):
         
         # connections used. If we don't use different connections sometime they make some interference
@@ -137,31 +120,32 @@ class rabbit_client:
 
     """ UTILITY FUNCTIONS """
     
-    """ configure the logger behaviour """
+    """ configures the logger behaviour """
     def _initialize_logger(self):
         self._logger = logging.getLogger(__name__)
         
         # prevent to allocate more handlers into a previous used logger
         if not self._logger.hasHandlers():
             handler = logging.StreamHandler(sys.stdout)
-            file_handler = logging.FileHandler('/var/log/rabbit_'+self._receiver_type+'_rabbit.log')
+            file_handler = logging.FileHandler('/var/log/rabbit_'+self._receiver_type+'.log')
             formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
                                                  " %(levelname)s %(message)s",
                                                  "%Y-%m-%d %H:%M:%S")
             handler.setFormatter(formatter)
             file_handler.setFormatter(formatter)
+            
             file_handler.setLevel(logging.DEBUG)
-            handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.INFO)
+            
             self._logger.addHandler(handler)
             self._logger.addHandler(file_handler)
-            self._logger.setLevel(logging.DEBUG)
 
+    """ secure way for closing the client. It closes all the threads used by the service """
     def close_all(self):
         self._logger.debug("Closing all rabbitMQ message receivers thread")
         for thread in self._threads:
             thread.raiseExc(Exception)
-            
-    # PRIVATE FUNCTIONS
+
 
     """ verification of an IPv4 address """
     @staticmethod
@@ -206,7 +190,9 @@ class rabbit_client:
             self._receive_connection = None
             self._send_channel = None
             return False
-
+    
+    """ COMMUNICATION MANAGEMENT """
+    
     """ verifies if the reply of a request has been received using a correlationID associated with the request """
     def _check_result(self, correlation_id) -> bool:
         try:
@@ -229,11 +215,12 @@ class rabbit_client:
     
     """ adds the reply of a request to the archive """
     def _add_result(self, correlation_id, value):
-        #with self._responses_lock:
-        self._responses[correlation_id] = value
+        with self._responses_lock:
+            self._responses[correlation_id] = value
         
     """ MESSAGE RECEIVAL MANAGEMENT """
 
+    """ thread for start the callback channel """
     def _start_callback(self):
         try:
             self._logger.debug("Starting the thread for callback queue management")
@@ -241,12 +228,13 @@ class rabbit_client:
         except:
             self._logger.warning("Closing the thread for callback queue management")    
     
+    """ thread for start the main channel """
     def _start_receive(self):
-       # try:
+        try:
             self._logger.debug("Starting the thread for receive queue management")
             self._receive_channel.start_consuming()
-       # except:
-       #     self._logger.warning("Closing the thread for receive queue management")
+        except:
+            self._logger.warning("Closing the thread for receive queue management")
             
     """ allocate receiving queue and start them on threads """
     def _allocate_receiver(self) -> bool:
@@ -268,7 +256,8 @@ class rabbit_client:
             callback_queue = result2.method.queue
             self._logger.debug("Queues correctly instantiated")
             self._logger.debug("Executing queues binding to the exchange")
-            if self._receiver_type == 'interface':
+            # the rabbitMQ could be used directly inside a container. In this case the local IP address is useless
+            if self._receiver_type == 'interface': 
                 self._receive_channel.queue_bind(exchange='health_system_exchange',
                                             queue=queue_name,
                                             routing_key=self._receiver_type,
@@ -582,7 +571,3 @@ class rabbit_client:
             
         self._logger.error("Error. Unable to contact the broker. Connection down")
         return {'command':'error', 'message':'internal error', 'type':'internal_error'}
-
-
-
-
