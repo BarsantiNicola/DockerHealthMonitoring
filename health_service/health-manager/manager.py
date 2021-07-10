@@ -260,13 +260,15 @@ class docker_manager:
             return containerID in self._restarted_list
         
     """ sets a container in restarting mode(prevents actions on the container)"""    
-    def _add_restarted(self, containerID):
+    def _add_restarted(self, containerID) -> bool:
         if self._is_restarted(containerID) is False:
             with self._restart_lock:
                 self._restarted_list.append(containerID)
                 self._logger.debug("Container " + str(containerID) + " added to the restart list")
+            return True
         else:
             self._logger.warning("Container " + str(containerID) + " already added to the restart list")
+            return False
     
     """ undos the restart operation by resetting the container into the normal mode""" 
     def _remove_restarted(self, containerID):

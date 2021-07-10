@@ -215,11 +215,9 @@ class antagonist:
         os.system("tc filter del dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:2")
         os.system("tc filter add dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:1")
         self._logger.debug("Terminated attack on " + target_address)
-        
-    """ COMMUNICATION MANAGEMENT """
     
-    """ starts the antagonist attack """
-    def _enable_antagonist(self, message):
+    """ thread for launch an attack to all the containers """
+    def _attack_launcher(self):
         self._logger.info("Start antagonist attack")
         containers = self._manager._get_all_containers()
         self._set_packet_loss_attack()   # generating the channel with the current packet loss parameter
@@ -230,6 +228,11 @@ class antagonist:
                 self._logger.info("Launching attack thread for " + str(container.short_id))
                 threading.Thread(target=self._attack_containers, args=(container.short_id,)).start()
                 
+    """ COMMUNICATION MANAGEMENT """
+    
+    """ starts the antagonist attack """
+    def _enable_antagonist(self, message):
+        threading.Thread(target=self._attach_launcher).start()
         return {'command':'ok','address': socket.gethostbyname(socket.gethostname()), 'description': 'Antagonist started'}
     
     """ stops the antagonist attack """
