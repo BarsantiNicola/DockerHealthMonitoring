@@ -309,14 +309,13 @@ class docker_manager:
     
     """ used by the antagonist the get the ip address of a container """
     def _get_ip_addr(self, targetID):
-        try:
-            return self._docker_env.inspect_container(targetID)['NetworkSettings']['Networks']['bridge']['IPAddress']
-        except:
-            return ''
+        return self._docker_env.inspect_container(targetID)['NetworkSettings']['Networks']['bridge']['IPAddress']
+
               
     """ Periodic containers analysis """
     def _execute_monitor(self):
         
+        self._logger.debug("Starting monitor analysis")
         # get all containers
         containers = self._get_all_containers()
         current_log = {} # start a new log
@@ -326,64 +325,62 @@ class docker_manager:
         self._logger.debug("Starting analysis of the local docker host containers status""")
         # scroll all the present containers
         for container in containers:
-            
             if not self._is_ignored(container.short_id): # checks only the containers that are NOT on the ignored list
                 
                 if container.status == "running" :  # container is RUNNING
                     # a restarted container is now running so we can remove from the restarted_list 
-                    if self._is_restarted(container.short_id):  
+                    if self._is_restarted(container.short_id) is True:  
                         self._logger.debug("Container " + str(container.short_id) + " change state from update to running")
                         self._remove_restarted(container.short_id)
                         update = True    # a change into the containers status has occurred
                         
                     try:
                         # getting the ip address of the container
-                        ip_ctr = self._docker_env.inspect_container(container.short_id)['NetworkSettings']['Networks']['bridge']['IPAddress'] # get container IP    
-                        self._logger.debug("Evaluating packet loss for container " + str(container.short_id))
+                        ip_ctr = self._get_ip_addr(container.id) # get container IP    
                         
-                        # evaluating the packet loss
-                        host = ping(ip_ctr, count=20, interval=0.01, timeout=0.1) # ping the container
-                        self._logger.debug("Measured packet loss for container " + str(container.short_id)+": " +str(100*(host.packet_loss))+'%')
+                        if ip_ctr != '':
+                            self._logger.debug("Evaluating packet loss for container " + str(container.short_id))
                         
-                        # generation of the description file
-                        container_desc = {
+                            # evaluating the packet loss
+                            host = ping(ip_ctr, count=20, interval=0.01, timeout=0.1) # ping the container
+                            self._logger.debug("Measured packet loss for container " + str(container.short_id)+": " +str(100*(host.packet_loss))+'%')
+                        
+                            # generation of the description file
+                            container_desc = {
                                 'address': ip_ctr, 
                                 'packet_loss': str(100*(host.packet_loss))+'%', 
                                 'container_state':'running',
                                 'service_state':'enable'
-                        }
+                            }
                         
-                        # 
-                        if host.packet_loss > self._get_threshold()/100: # if packet loss exceeds the threshold we restart the container
-                            
-                            self._logger.info("Container " + str(container.short_id) + " packet loss too high. Restart executed")
-                            try:
-                                container_desc['details'] = 'Packet loss threshold exceeded, container restarted'
-                                if self._add_restarted(container.short_id) is True:
-                                    container.restart() 
-                                    update = True
-                                    container_desc['container_state'] ='restart'
-                                else: 
-                                    self._logger.warning("Container " + str(container.short_id) + " already restarted. Abort operation")
+                             
+                            if host.packet_loss > self._get_threshold()/100: # if packet loss exceeds the threshold we restart the container
+                                update = True
+                                self._logger.info("Container " + str(container.short_id) + " packet loss too high. Restart executed")
+                                try:
+                                    container_desc['details'] = 'Packet loss threshold exceeded, container restarted'
+                                    container_desc['container_state'] = 'offline'
+                                    container_desc['details'] = 'Container offline. Trying to restart it'
+                                    container.stop()
+                                except:
+                                    self._logger.warning("Error during the restart of "+ container.short_id)
                                     container_desc['container_state'] ='offline'
                                     container_desc['details'] = 'Container offline. Trying to restart it'
-                            except:
-                                self._logger.warning("Error during the restart of "+ container.short_id)
-                                container_desc['container_state'] ='offline'
-                                container_desc['details'] = 'Container offline. Trying to restart it'
-                                
-                    except KeyError:           
+                        else:
                             container_desc = {'address': 'unknown', 'packet_loss': 'unknown', 'container_state':'running', 'service_state':'enable', 'details': 'Network error occurred during the management'}                
+  
+                    except:           
+                        container_desc = {'address': 'unknown', 'packet_loss': 'unknown', 'container_state':'running', 'service_state':'enable', 'details': 'Network error occurred during the management'}                
                 # container was shut down but not for a restart        
                 elif container.status == "exited": 
                     container_desc = {'container_state':'exited', 'service_state':'enable', 'details': 'Container offline. Trying to restart it'}                
-                    if not self._is_restarted(container.short_id):
-                        try:
-                            container.start()    
-                            update = True
-                            self._add_restarted(container.short_id)
-                        except:
-                            self._logger.warning("Error during the restart of "+ container.short_id)
+                    if self._add_restarted(container.short_id) is True:
+                        container.start() 
+                        update = True
+                    else: 
+                        self._logger.warning("Container " + str(container.short_id) + " already restarted. Abort operation")
+                    container_desc['container_state'] ='restart'
+                    container_desc['details'] = 'Container offline. Trying to restart it'
                             
             else:       
                 self._logger.debug("Container ignored")
@@ -427,14 +424,15 @@ class docker_manager:
     def _start_manager(self):
         while self._exit:
             self._execute_monitor()
-            sleep(self._container_time)    
+            sleep(self._container_time)  
+        self._logger.debug("Closing container manager thread")
 
     """ executes periodically an heartbeat message to the controller """
     def _heartbeat(self):
         while True:
             self._rabbit.send_controller_async()
             sleep(self._alive_time)
-            
+        self._logger.debug("Closing heartbeat manager thread")   
     """ COMMUNICATION MANAGEMENT """
     
     """ excludes a container from the service management. The message must contains a containerID field """
@@ -509,6 +507,8 @@ class docker_manager:
     """ closes all the threads and system functionalities """
     def close_all(self):
         self._exit = False
+        self._docker_env.close()
+        self._containers_env.close()
         self._antagonist.close_all()
         self._rabbit.close_all()
 

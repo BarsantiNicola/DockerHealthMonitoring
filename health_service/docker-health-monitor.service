@@ -1,6 +1,6 @@
 [Unit]
-Description=<project description>
-
+Description=Service used by Docker-Health-Monitor to monitor docker containers
+Wants=docker.service
 [Service]
 User=root
 WorkingDirectory=/root/health_manager

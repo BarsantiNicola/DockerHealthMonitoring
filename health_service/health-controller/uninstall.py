@@ -49,7 +49,7 @@ response = client.send_controller_sync({
 logger.debug("Request sent response: " + response['command']) 
 
 if response['command'] == 'ok':
-    logging.debug("Removing the local controller and rest interface components")
+    logger.debug("Removing the local controller and rest interface components")
     os.system('systemctl disable docker-health-controller.service')
     os.system('systemctl stop docker-health-controller.service')
     os.system('systemctl disable docker-health-interface.service')
@@ -60,8 +60,9 @@ if response['command'] == 'ok':
     os.system('rm /var/log/rabbit_*')
     os.system('rm /var/log/health_monitor_*')
     os.system('systemctl daemon-reload')
-    logging.debug("Uninstall completed")
+    logger.debug("Uninstall completed")
 else:
-    logging.debug("Uninstall stopped, managers not removed")
+    logger.debug("Uninstall stopped, managers not removed")
 
-exit()
+client.close_all()
+sys.exit(1)

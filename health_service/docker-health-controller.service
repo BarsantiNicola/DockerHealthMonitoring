@@ -1,5 +1,5 @@
 [Unit]
-Description=<project description>
+Description=Service used by Docker-Health-Monitor to manage the managers
 
 [Service]
 User=root

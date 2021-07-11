@@ -36,7 +36,6 @@ class antagonist:
               
         self._manager = manager            # docker manager used to operate on the dockers
         self._configuration = config       # configuration that contains the ip address of the rabbitMQ message  broker
-        self._exit = True                  # when True closes all the threads and loop used by the application
         self._attack = False               # when True is performing an attack. Pass to false will close all the attack threads
         self._rabbit = None                # rabbitMQ client instance
         self._logger = None                # logger instance
@@ -170,28 +169,28 @@ class antagonist:
     
     """ when an attack is performed the antagonist will generate a thread for each possible target. 
     Each thread will attack its own target in a indipendet way"""
-    def _attack_containers(self, targetID):
+    def _attack_containers(self, targetShortID, targetID):
 
-        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetID) + " started")
+        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetShortID) + " started")
 
         while self._attack is True:
             try:
                 # we apply the attacks only on the not ignored containers
-                if self._manager._is_ignored(targetID) is False:
+                if self._manager._is_ignored(targetShortID) is False:
                     # heavy defines the probability to perform an attack
                     if random.uniform(0,1)<self._get_heavy()/100:
                         # we evaluate the balance between the attack types
                         if random.uniform(0,1) < self._get_balance()/100:
-                            self._logger.debug("Shutdown container " + str(targetID))
-                            self._manager._shutdown_container(targetID)
+                            self._logger.debug("Shutdown container " + str(targetShortID))
+                            self._manager._shutdown_container(targetShortID)
                         else:
-                            self._logger.debug("Packet loss attack on container " + str(targetID))
+                            self._logger.debug("Packet loss attack on container " + str(targetShortID))
                             self._exec_packet_loss_attack(self._manager._get_ip_addr(targetID))
-                            self._logger.debug("Packet loss attack on container " + str(targetID) + " completed")
+                            self._logger.debug("Packet loss attack on container " + str(targetShortID) + " completed")
             except:
                 self._logger.warning("An exception has occurred during the attack")
             sleep(numpy.random.exponential(self._freq_param)) 
-        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetID) + " stopped")
+        self._logger.info("Thread " + str(threading.get_ident()) + " for " + str(targetShortID) + " stopped")
             
     """ prepares the channels for generating the packet loss behaviour """
     def _set_packet_loss_attack(self):
@@ -206,6 +205,9 @@ class antagonist:
 
     """ executes a packet loss attack on the target container """
     def _exec_packet_loss_attack(self, target_address):
+        
+        if target_address == '':
+            return
         self._logger.debug("Starting attack on " + target_address)
         # change the channel for the docker ip to the one with the packet loss
         os.system("tc filter del dev docker0 parent 1:0 protocol ip prio 1 u32 match ip dst "+ target_address +" flowid 1:1")
@@ -226,13 +228,16 @@ class antagonist:
         for container in containers:
             if not self._manager._is_ignored(container.short_id):  # attack will be performed only to the not ignored containers
                 self._logger.info("Launching attack thread for " + str(container.short_id))
-                threading.Thread(target=self._attack_containers, args=(container.short_id,)).start()
-                
+                threading.Thread(target=self._attack_containers, args=(container.short_id, container.id,)).start()
+        
+        while self._attack:
+            pass
     """ COMMUNICATION MANAGEMENT """
     
     """ starts the antagonist attack """
     def _enable_antagonist(self, message):
-        threading.Thread(target=self._attach_launcher).start()
+        if self._attack is False:
+            threading.Thread(target=self._attack_launcher).start()
         return {'command':'ok','address': socket.gethostbyname(socket.gethostname()), 'description': 'Antagonist started'}
     
     """ stops the antagonist attack """
