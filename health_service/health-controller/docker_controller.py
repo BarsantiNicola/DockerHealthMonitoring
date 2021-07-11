@@ -191,6 +191,7 @@ class controller:
             # generating a basic containers structure for each docker manager. The status is setted
             # to wait_update because immidiately the system will spread a multicast request to all the managers
             for docker in self._dockers:
+                self._logger.info("Docker: " + json.dumps(docker))
                 self._containers_data.append({
                         'address' : docker['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
@@ -924,17 +925,18 @@ class controller:
     """ uninstalls the service on all the platform. For security reasons the function is not available from the REST interface """
     def _uninstall(self, message) -> dict:
         dockers = []
-        with self._docker_lock: # we need to garantee mutual exclusion 
-            for docker in self._dockers:
-                dockers.append(docker['address'])
-        
-        for docker in dockers:
-            self._logger.debug("Removing the docker manager at " + docker['address'])
-            self._remove_docker_manager({'address':docker['address']})
-        
-        self.close_all()
-        return { 'command' : 'ok', 'description' : 'All the service removed. Service down after this message' }
+        try:
+            with self._docker_lock: # we need to garantee mutual exclusion 
+                for docker in self._dockers:
+                    dockers.append(docker['address'])
 
+            for docker in dockers:
+                self._logger.info("Removing the docker manager at " + docker)
+                self._remove_docker_manager({'address':docker})
+
+            return { 'command' : 'ok', 'description' : 'All the service removed. Service down after this message' }
+        except:
+            return { 'command' : 'error' , 'type' : 'INTERNAL_ERROR', 'description' : 'An error has occurred during the request management' }
 
     """ STRESS TEST """
     
