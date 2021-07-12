@@ -58,7 +58,7 @@ class controller:
 
         self._len_aggregation_counter = 0      # counter for bandwidth measurements
         self._counter_lock = threading.Lock()  # lock for mutual exclusion on len_aggregation_counter
-        
+
         # interface shared with outside clients by rabbitMQ
         self._interface = {
            'live' : self._set_heartbeat,
@@ -195,7 +195,7 @@ class controller:
                         'address' : docker['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
                         'manager_status' : 'offline',    # we don't know yet if the manager is correctly allocated
-                        'last_alive' : datetime.now() + timedelta(minutes=5) })   # to know soon or later if the manager is active
+                        'last_alive' : datetime.now() + timedelta(seconds=30) })   # to know soon or later if the manager is active
             self._logger.info("Containers data table build")
             
         except FileNotFoundError:
@@ -350,7 +350,7 @@ class controller:
                         'address' : message['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
                         'manager_status' : 'offline',    # we don't know yet if the manager is correctly running
-                        'last_alive' : datetime.now() + timedelta(minutes=5) })   # to know soon or later if the manager is active
+                        'last_alive' : datetime.now() + timedelta(seconds=30) })   # to know soon or later if the manager is active
                 self._logger.debug("Controller has complete the update")
                 if self._save_data() is True:
                     self._logger.info("New docker host added to the service: " + message['address'])
@@ -444,7 +444,7 @@ class controller:
                     self._logger.debug("Container found")
                     if docker['manager_status'] != 'wait_update': # if controller is already waiting the update no change needed
                         docker['manager_status'] = 'update_present'
-                        docker['last_alive'] = datetime.now() + timedelta(minutes=5)
+                        docker['last_alive'] = datetime.now() + timedelta(seconds=30)
                         self._logger.info("Container " + message['address'] + " status set to 'update_present'")
                         return True
                     self._logger.debug("Container " + message['address'] + " already waiting the update. Operation aborted")
@@ -472,7 +472,7 @@ class controller:
             for docker in self._containers_data:
                 if docker['address'] == address:
                     docker['content'] = content
-                    docker['last_alive'] = datetime.now() + timedelta(minutes=5)
+                    docker['last_alive'] = datetime.now() + timedelta(seconds=30)
                     docker['manager_status'] = 'updated'
                     self._logger.debug("Container found")
                     return True
@@ -489,7 +489,7 @@ class controller:
                 for docker in self._containers_data:
                     if docker['address'] == message['address']:
                         self._logger.debug("Container found")
-                        docker['last_alive'] = datetime.now() + timedelta(minutes=5)
+                        docker['last_alive'] = datetime.now() + timedelta(seconds=30)
                         if docker['manager_status'] == 'offline':
                             docker['manager_status'] = 'update_present'
                             self._logger.debug("Changed manager status from offline to update_present")
