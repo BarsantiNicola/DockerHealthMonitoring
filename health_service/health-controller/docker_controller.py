@@ -39,7 +39,7 @@ from pandas import DataFrame
 class controller:
      
     def __init__(self):
-        self._aggregation_time = 5            # time interval for the pending updates elaboration
+        self._aggregation_time = 0.5          # time interval for the pending updates elaboration
         self._enable_test = False             # enable the collect of data for testing purpouse
         self._configuration = None            # configuration getted from the configuration file[contains rabbitMQ address]
         self._rabbit = None                   # instance of rabbitMQ management class
