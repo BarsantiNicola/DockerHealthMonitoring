@@ -110,7 +110,7 @@ class controller:
         self._logger.debug("Service started")
         
         self._logger.info("Controller initialization completed at " + socket.gethostbyname(socket.gethostname()))    
-            
+  
     """ UTILITY FUNCTIONS """
     
     """ configures the logger behaviour """
@@ -191,7 +191,6 @@ class controller:
             # generating a basic containers structure for each docker manager. The status is setted
             # to wait_update because immidiately the system will spread a multicast request to all the managers
             for docker in self._dockers:
-                self._logger.info("Docker: " + json.dumps(docker))
                 self._containers_data.append({
                         'address' : docker['address'],    # to identify the manager which the data are referring to
                         'content' : 'NO CONTENT AVAILABLE',     
@@ -982,7 +981,7 @@ class controller:
         
         if self._collect_data is True:
             return
-        
+
         # prestart the threads for collecting the test samples
         threading.Thread(target=self.test_availability).start()
         threading.Thread(target=self.test_bandwidth).start()
@@ -1026,12 +1025,14 @@ class controller:
         waiting_time = [0.1,1,2.5]
         
         # starting all the antagonists
-        self.add_antagonists({})
-        sleep(5) # wait for the system to be in stable state
-
+        
+        self._logger.info("Starting testing phase")
         for test in tests: 
+            self._logger.info("Starting test: " + test['name'])
             # apply the configuration on all the antagonists
             self.change_antagonists_config(test)
+            self.add_antagonists({})
+            sleep(5) # wait for the system to be in stable state
             # starting collecting of data(here because more precise, otherwise we collect many samples without 
             # having changed the configuration of the antagonists)
             self._collect_data = True
@@ -1044,12 +1045,14 @@ class controller:
                     sleep(300) # for time problems, each test will be runned for 5m(30h total test time)
                     with self._data_lock:
                         self._availability.to_csv('/root/data/availability/availability_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'_'+str(a)+'.csv')
-                        self._bandwidth.to_csv('/root/data/bandwidth_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'_'+str(a)+'.csv')
-        self._collect_data = False
-        self.remove_antagonists({})
-         
+                        self._bandwidth.to_csv('/root/data/bandwidth/bandwidth_'+test['name']+'_'+str(waiting)+'_'+str(datetime.now())+'_'+str(a)+'.csv')
+            self._collect_data = False
+            self.remove_antagonists({})
+            self._logger.info("Test " + test['name'] + " completed")
+            
 """ SERVICE """
 control = controller()
+
 try:
     while True:
         pass

@@ -1,9 +1,0 @@
-1) for the REST architecture every message can be sent to a single element or to an entire collection, so rabbitMQ has to use not only topics but even keywords in order to send the message
-   to one element or to all[keyword could be the hostname of the machine, however some machines could have the same hostname....maybe we need another information into the configuration file to assign the name to the machine]
-   
-2) even rabbitMQ will be managed by the DockerManager so we can assume that it will always been active, in particular because we will instantiate rabbitMQ on the same machine of the Controller we don't have any problems if, for
-   example, the entire machine is shutted down making the communication unavailable(rabbitMQ no more available) because shutting down the machine in which rabbitMQ is instantiated will shut down even the Controller so the overall     
-   system will not be available anymore to the user(no REST interface). Moreover this will be not a problem to the other machines, they will still work but without been able to communicate(fortunately they have to communicate only 
-   with the controller)
-   
-3) we have to pay attention on rabbitMQ, it could fail(for point 2) but the applications have to catch the error and continue to work and if rabbitMQ became available reconnect to it   

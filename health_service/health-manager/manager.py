@@ -1,4 +1,6 @@
 from antagonist import antagonist
+from datetime import datetime
+from datetime import timedelta
 from rabbit import rabbit_client
 from icmplib import ping
 from time import sleep
@@ -257,13 +259,20 @@ class docker_manager:
         This is to prevent that a service try to start an offline container that is currently under restarting"""       
     def _is_restarted(self, containerID) -> bool:
         with self._restart_lock:
-            return containerID in self._restarted_list
+            for restarted in self._restarted_list:
+                if restarted['id'] == containerID:
+                    if datetime.now()>restarted['expire']:
+                        self._restarted_list.remove(restarted)
+                        return False
+                    else:
+                        return True
+        return False
         
     """ sets a container in restarting mode(prevents actions on the container)"""    
     def _add_restarted(self, containerID) -> bool:
         if self._is_restarted(containerID) is False:
             with self._restart_lock:
-                self._restarted_list.append(containerID)
+                self._restarted_list.append({'id':containerID,'expire':datetime.now()+timedelta(seconds=20)})
                 self._logger.debug("Container " + str(containerID) + " added to the restart list")
             return True
         else:
@@ -275,7 +284,10 @@ class docker_manager:
         if self._is_restarted(containerID) is True:
             with self._restart_lock:
                 self._logger.debug("Container " + str(containerID) + " removed from the restart list")
-                self._restarted_list.remove(containerID)
+                for restarted in self._restarted_list:
+                    if restarted['id'] == containerID:     
+                        self._restarted_list.remove(restarted)
+                        return
     
     """ gives back the threshold used by the manager respecting the mutual exclusion on the variable """
     def _get_threshold(self):
