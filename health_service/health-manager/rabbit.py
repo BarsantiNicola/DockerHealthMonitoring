@@ -99,11 +99,11 @@ class rabbit_client:
         self._threads = list()
         # maximum waiting time for a reply
         if receiver_type == 'controller':
-            self._waiting_time = timedelta(seconds=30)
+            self._waiting_time = timedelta(seconds=5)
         elif receiver_type == 'manager':
-            self._waiting_time = timedelta(seconds=10)
+            self._waiting_time = timedelta(seconds=1)
         elif receiver_type == 'interface':
-            self._waiting_time = timedelta(seconds=60)
+            self._waiting_time = timedelta(seconds=30)
         else:
             self._waiting_time = timedelta(seconds=15)
         # lock for mutual exclusion on _responses
@@ -126,6 +126,7 @@ class rabbit_client:
         
         # prevent to allocate more handlers into a previous used logger
         if not self._logger.hasHandlers():
+            self._logger.setLevel(logging.DEBUG)
             handler = logging.StreamHandler(sys.stdout)
             file_handler = logging.FileHandler('/var/log/rabbit_'+self._receiver_type+'.log')
             formatter = coloredlogs.ColoredFormatter("%(asctime)s %(name)s"
