@@ -165,4 +165,5 @@ def data_analysis(discarded_pos=0, outliers = False):
     bandwidth_max_test(discarded_pos)
     bandwidth_test(discarded_pos,outliers)
     availability_test(discarded_pos,outliers)
-    
+ 
+data_analysis()   
