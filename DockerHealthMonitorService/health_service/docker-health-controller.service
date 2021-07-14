@@ -1,0 +1,13 @@
+[Unit]
+Description=Service used by Docker-Health-Monitor to manage the managers
+
+[Service]
+User=root
+WorkingDirectory=/root/health_service/health-controller
+ExecStart=/bin/bash -c 'python3 docker_controller.py'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
+

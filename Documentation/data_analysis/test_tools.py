@@ -96,7 +96,7 @@ def compute_bandwidth(file_name, discarded_pos = 0):
     total_data = 0
     data = load_data(file_name)
     for pos in range(math.floor(discarded_pos/5),int(data.size/2)):
-        total_data += data.loc[pos]['size']
+        total_data += data.loc[pos]['size']*8
     return total_data/int(data.size/2)
 
 def compute_test_bandwidth(test_name, threshold, discarded_pos=0, outliers=False):
@@ -106,7 +106,7 @@ def compute_test_bandwidth(test_name, threshold, discarded_pos=0, outliers=False
         results.append(compute_bandwidth('/home/nico/Documenti/remotedata/'+test_name+'/'+test_name+'_'+threshold+'/bandwidth/'+test, discarded_pos))
     if outliers is True:
         results = remove_outliers(results)
-
+        
     data = numpy.array(results)
     
     return {
@@ -135,7 +135,7 @@ def compute_max_bandwidth(file_name, discarded_pos = 0):
         if data.loc[pos]['size']>max_val:
             max_val = data.loc[pos]['size']
             
-    return max_val
+    return max_val*8
 
 def compute_test_max_bandwidth(test_name, threshold, discarded_pos=0):
     results = list()

@@ -1,0 +1,11 @@
+[Unit]
+Description=Service used by Docker-Health-Monitor to generate a REST interface
+
+[Service]
+User=root
+WorkingDirectory=/root/health_service/health_interface
+ExecStart=/bin/bash -c 'python3 -m swagger_server'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

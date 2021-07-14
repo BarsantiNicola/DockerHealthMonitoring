@@ -1,0 +1,44 @@
+title Containers Information Spread
+
+participant "DockerManager[node1]" as A
+participant "DockerManager[node2]" as B
+participant "Controller" as C
+actor "User" as D
+
+alt whenever a change in the status of a container occours
+	A-->>C: UPDATE
+	B-->>C: UPDATE
+end 
+
+loop every X seconds
+
+	C->>C: verification of pending updates
+
+	alt if A pending
+		C->>A: GET UPDATE
+		A-->C: CONTAINER LIST
+	end
+
+	alt if B pending
+		C->>B: GET UPDATE
+		B-->C: CONTAINER LIST
+	end
+end 
+
+D->C: SHOW CONTAINERS
+
+C->>C: verification of pending updates
+
+alt if A pending
+	C->>A: GET UPDATE
+	A-->C: CONTAINER LIST
+end
+
+alt if B pending
+	C->>B: GET UPDATE
+	B-->C: CONTAINER LIST
+end 
+
+C-->D: CONTAINERS LIST
+
+

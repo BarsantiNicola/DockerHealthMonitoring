@@ -1,0 +1,7 @@
+setuptools_rust >= 0.1
+connexion == 2.5.0
+python_dateutil == 2.6.0
+setuptools >= 21.0.0
+pika >= 1.2.0
+coloredlogs >= 15.0.1
+paramiko >= 2.6.0

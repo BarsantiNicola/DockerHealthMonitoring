@@ -1,0 +1,12 @@
+title Add/Remove Container
+
+participant "DockerManager" as A
+participant "Controller" as B
+actor "User" as C
+
+C->>B: ADD/REMOVE CONTAINER
+B->>A: ADD/REMOVE CONTAINER
+A-->>B: OK/ERROR
+B-->>C: OK/ERROR
+
+

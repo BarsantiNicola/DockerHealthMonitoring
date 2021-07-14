@@ -35,6 +35,6 @@ containers that it need to use(antagonist and DockerManager). In this way
 we have a first big container capable of generating new containers and directly
 allocate them inside the Docker hosts
                          
-More information [WILL BE] available on the documentation
+More information are available on the documentation
                                                     
 
